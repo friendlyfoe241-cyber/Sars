@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+.DS_Store
+scripts/.cache
+scripts/.cache-gcov
+__pycache__
+tsconfig.tsbuildinfo

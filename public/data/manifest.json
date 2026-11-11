@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "scripts/prepare_nisar_quicklook.py",
+  "dataset": {
+    "status": "nisar_quicklook",
+    "source": "NASA/ISRO NISAR L2 GCOV (geocoded observables), archived by NASA ASF DAAC",
+    "access": "Granule metadata from CMR; displayed rasters are the public ASF browse quicklooks of the GCOV C11 (HHHH) and C22 (HVHV) layers.",
+    "limitations": [
+      "Displayed values are 8-bit quicklook renderings (display DN), not calibrated backscatter in dB.",
+      "The change layer is a difference of those display values; it preserves the sign of change under the shared quicklook rendering but its magnitude is not sigma0.",
+      "Quicklook resolution is about 181 m per pixel, coarser than the native GCOV posting.",
+      "Calibrated sigma0/dB rasters require the GCOV HDF5 products (Earthdata login); see scripts/prepare_nisar_gcov.py."
+    ]
+  },
+  "studyArea": {
+    "id": "tonj-floodplain-ssd",
+    "name": "Tonj floodplain wetlands",
+    "region": "Warrap State",
+    "country": "South Sudan",
+    "phenomenon": "Seasonal wetland inundation",
+    "description": "Floodplain wetlands of the Tonj River, a tributary of the Bahr el Ghazal in the western Sudd basin. The wetlands expand and recede with the annual flood pulse; the comparison window covers the end of the 2026 wet season.",
+    "bounds": {
+      "west": 28.3,
+      "south": 6.9,
+      "east": 29.45,
+      "north": 8.0
+    },
+    "boundary": [
+      [
+        28.3,
+        6.9
+      ],
+      [
+        29.45,
+        6.9
+      ],
+      [
+        29.45,
+        8.0
+      ],
+      [
+        28.3,
+        8.0
+      ],
+      [
+        28.3,
+        6.9
+      ]
+    ],
+    "center": [
+      28.875,
+      7.45
+    ],
+    "pixelSizeMetersApprox": 181,
+    "rasterSize": {
+      "width": 700,
+      "height": 675
+    }
+  },
+  "acquisitionPair": {
+    "sensor": "NISAR",
+    "band": "L-band",
+    "productType": "L2 GCOV",
+    "collection": "NISAR_L2_GCOV_V1",
+    "maturity": "VALIDATED",
+    "crid": "P05036",
+    "processingSoftwareVersion": "R05.03.2",
+    "orbitDirection": "ASCENDING",
+    "path": 14,
+    "frame": 5,
+    "polarisations": [
+      "HH",
+      "HV"
+    ],
+    "temporalBaselineDays": 12,
+    "earlier": {
+      "productId": "NISAR_L2_PR_GCOV_034_014_A_005_2005_DHDH_A_20261025T034252_20261025T034327_P05036_N_F_J_001",
+      "startTime": "2026-10-25T03:42:52Z",
+      "stopTime": "2026-10-25T03:43:27Z",
+      "orbit": 6514,
+      "pathNumber": 14,
+      "frameNumber": 5,
+      "flightDirection": "ASCENDING",
+      "polarisations": [
+        "HH",
+        "HV"
+      ],
+      "collectionName": "NISAR_L2_GCOV_V1",
+      "processingLevel": "GCOV",
+      "processingSoftwareVersion": "R05.03.2",
+      "crid": "P05036"
+    },
+    "later": {
+      "productId": "NISAR_L2_PR_GCOV_035_014_A_005_2005_DHDH_A_20261106T034253_20261106T034327_P05036_N_F_J_001",
+      "startTime": "2026-11-06T03:42:53Z",
+      "stopTime": "2026-11-06T03:43:27Z",
+      "orbit": 6687,
+      "pathNumber": 14,
+      "frameNumber": 5,
+      "flightDirection": "ASCENDING",
+      "polarisations": [
+        "HH",
+        "HV"
+      ],
+      "collectionName": "NISAR_L2_GCOV_V1",
+      "processingLevel": "GCOV",
+      "processingSoftwareVersion": "R05.03.2",
+      "crid": "P05036"
+    }
+  },
+  "encoding": {
+    "type": "quicklook_dn",
+    "unit": "display DN",
+    "nodata": 0,
+    "description": "8-bit ASF browse quicklook rendering of the GCOV C11 (HH) / C22 (HV) layers; monotonic with calibrated backscatter under the shared quicklook rendering. 0 marks nodata / outside the observation footprint."
+  },
+  "changeScale": {
+    "saturation": 75,
+    "unit": "display DN",
+    "description": "Colour scale saturates at +/- this value; derived from the 98th percentile of |after - before| for HH."
+  },
+  "rasters": {
+    "HH": {
+      "layer": "C11 (HHHH)",
+      "before": "observations/before_HH.png",
+      "after": "observations/after_HH.png"
+    },
+    "HV": {
+      "layer": "C22 (HVHV)",
+      "before": "observations/before_HV.png",
+      "after": "observations/after_HV.png"
+    }
+  }
+}
