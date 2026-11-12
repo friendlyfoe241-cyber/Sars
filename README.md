@@ -1,137 +1,160 @@
 # NISAR | Surface Change
 
-Minimal SAR surface-change monitoring prototype for the NASA Space Apps
+Global SAR surface-change monitoring prototype for the NASA Space Apps
 Challenge 2026 project **Dancing with the SARs**. The application opens
-directly into the monitoring interface: pick a polarisation and a display
-layer (Before / After / Change) to compare two NISAR acquisitions over one
-study area and see what changed on the ground.
+directly into the monitoring interface: search any location worldwide,
+discover the real NISAR observations covering it, select a compatible
+acquisition pair and compare it with the Before / After / Change viewer.
 
 Built with React, TypeScript, Vite, Tailwind CSS and Leaflet (React Leaflet).
 
 ---
 
-## Study area and scientific focus
+## What the application does
+
+1. **Global map** — starts at a world view; click anywhere to select a
+   location, search by place name or "lat, lon" coordinates (OpenStreetMap
+   Nominatim), or draw a rectangular area of interest (AOI).
+2. **Live NISAR discovery** — "Search NISAR data" queries the ASF search
+   service (the service behind ASF Data Search / Vertex and the `asf_search`
+   Python package) for NISAR L2 GCOV granules intersecting the AOI. The
+   returned scene footprints are drawn on the map; results are listed newest
+   first with product identifier, date, band, polarisation and processing
+   maturity (VALIDATED / PROVISIONAL / BETA). A date-range filter is
+   available.
+3. **Compatible pairs** — scenes are only paired when sensor band, product
+   type, polarisation set, orbit direction, track, frame, processing
+   maturity and processing versions all match. Suggested pairs are ranked by
+   how much of the AOI they actually cover and by baseline (NISAR repeats
+   every 12 days). Incompatible manual selections are explained.
+4. **Comparison viewer** — the selected pair is loaded into the existing
+   Before / After / Change viewer with polarisation switching, the pixel-level
+   difference layer and calculated statistics. Rasters are the public ASF
+   browse quicklooks of the selected granules, georeferenced with their KML
+   ground-overlay quads and resampled to the AOI grid in the browser.
+5. **Explain this change** — the Gemini feature uses the currently selected
+   study area, pair and calculated statistics.
+
+## Study area example
+
+The repository ships one prepared example dataset (used by the "Example"
+link and recognised when its pair is selected):
 
 | | |
 |---|---|
 | Study area | **Tonj floodplain wetlands**, Warrap State, South Sudan |
-| Basin | Tonj River, upper Bahr el Ghazal system (western Sudd) |
-| Phenomenon | **Seasonal wetland inundation** (flood extent dynamics of a floodplain wetland) |
-| Window | 28.30°E–29.45°E, 6.90°N–8.00°N |
+| Phenomenon | **Seasonal wetland inundation** (flood extent dynamics) |
+| Products | `NISAR_L2_PR_GCOV_034_014_A_005_2005_DHDH_A_20261025T034252_..._P05036_N_F_J_001` (25 Oct 2026) and `NISAR_L2_PR_GCOV_035_014_A_005_2005_DHDH_A_20261106T034253_..._P05036_N_F_J_001` (6 Nov 2026) |
+| Product type | NISAR L2 GCOV, collection `NISAR_L2_GCOV_V1` (VALIDATED), CRID P05036, L-band, dual-pol HH/HV, path 14 / frame 5, ascending, 12-day baseline |
 
-The study area is defined in `public/data/manifest.json` (bounds, boundary
-polygon, description, acquisitions). Adding another study area later means
-adding an entry there plus its prepared rasters — no application code changes
-are required beyond registering the entry.
+Any other location uses exactly the same workflow — the example is data in
+`public/data/manifest.json`, not a special case in the code.
 
-## Observation pair (real NISAR data)
+## Data discovery and catalogue
 
-Both acquisitions are NASA-ISRO **NISAR L-band** products from the same
-track, frame, orbit direction and polarisation, processed with the same
-software version and composite release (checked by the preparation script):
+- **Catalogue:** ASF search service `api.daac.asf.alaska.edu` (GeoJSON-style
+  results with footprints, polarisation, track/frame, orbit, maturity,
+  download and browse URLs). CORS-enabled, no authentication for metadata.
+  Only `platform=NISAR` + `processingLevel=GCOV` products with polarimetric
+  layers are requested and shown — never Sentinel-1, ALOS PALSAR or other
+  missions, never unsupported NISAR product types.
+- **Caching:** identical searches are served from an in-memory cache
+  (`src/lib/discovery.ts`); geocoding is rate-limited to one request per
+  second and cached (`src/lib/geocode.ts`).
+- **Scene metadata:** product identifier, acquisition time, band,
+  polarisation channels, product type, processing maturity, CRID/PGE
+  versions, orbit direction, orbit/track/frame, footprint, product download
+  URL. Only fields genuinely present in the catalogue are displayed.
 
-| | Earlier | Later |
-|---|---|---|
-| Product identifier | `NISAR_L2_PR_GCOV_034_014_A_005_2005_DHDH_A_20261025T034252_20261025T034327_P05036_N_F_J_001` | `NISAR_L2_PR_GCOV_035_014_A_005_2005_DHDH_A_20261106T034253_20261106T034327_P05036_N_F_J_001` |
-| Acquisition | 25 Oct 2026, 03:42 UTC | 6 Nov 2026, 03:42 UTC |
-| Orbit | 6514 (ascending) | 6687 (ascending) |
+## Raster availability
 
-- Product type: **NISAR L2 GCOV** (geocoded observables), collection
-  `NISAR_L2_GCOV_V1` (**VALIDATED**), CRID `P05036`, PGE `R05.03.2`.
-- Path 14, frame 5, ascending, L-band, dual polarisation **HH / HV**
-  (GCOV layers C11/HHHH and C22/HVHV).
-- Temporal baseline: 12 days (NISAR repeat cycle).
-- Source: NASA/ISRO NISAR, archived by the NASA ASF DAAC
-  (see the [ASF NISAR Data User Guide](https://nisar-docs.asf.alaska.edu/)).
+The application distinguishes (per scene and per loaded pair):
 
-## What is displayed, and which values are calculated
+| State | Meaning |
+|---|---|
+| Metadata available | found in the catalogue; footprint and metadata shown |
+| Quicklook available | public ASF browse quicklook can be loaded → display-DN comparison possible |
+| Calibrated raster available | a prepared calibrated dataset covers the selected pair (e.g. the example dataset) |
+| Processed and ready | rasters loaded onto the AOI grid; Before / After / Change enabled |
 
-**Real data (not synthetic):** the displayed rasters are the public ASF
-*browse quicklook renderings* of the GCOV C11 (HH) and C22 (HV) layers of the
-two granules above, resampled to the study window. Georeferencing comes from
-the ASF KML ground-overlay quads shipped with each quicklook. The status chip
-in the top bar identifies the dataset (`NISAR data · quicklook`).
+Finding a scene in the catalogue does not imply its raster is display-ready:
+when rasters cannot be prepared, the application shows the scene metadata
+and an explicit processing status instead of pretending a comparison exists.
+
+## Which values are calculated, and their limitations
 
 **Calculated in the browser** (`src/lib/changeDetection.ts`, deterministic,
-separate from the UI):
+separate from the UI): pixel-level difference `after − before` per
+polarisation, summary statistics over valid pixels (median, mean, IQR,
+10/90th percentiles, valid-pixel fraction), and the rendered change layer
+(blue = decrease, white = unchanged, orange-red = increase).
 
-- pixel-level difference `after − before` per polarisation,
-- summary statistics over valid pixels (median, mean, IQR, 10/90th
-  percentiles, valid-pixel fraction),
-- the rendered change layer (diverging scale: blue = decrease,
-  white = unchanged, orange-red = increase).
+**Limitations (also shown in the UI):** dynamic pairs use 8-bit quicklook
+**display DN** renderings, not calibrated backscatter — the change layer's
+*sign* is meaningful (shared monotonic quicklook rendering), its *magnitude*
+is not σ⁰ in dB. Quicklook source resolution is ~180 m. Pixels outside the
+observation footprint are nodata and excluded from all statistics. No flood
+classification or flooded-area estimate is computed.
 
-**Known limitations of this data (also shown in the UI):**
+## Calibrated rasters and NASA Harmony
 
-- Quicklook values are 8-bit **display DN**, not calibrated backscatter.
-  The change layer therefore reports differences in display units. Its
-  *sign* is meaningful (the ASF quicklook rendering is shared across scenes
-  and monotonic; verified by near-identical histograms and a block regression
-  slope of 0.96 between the two dates), but its *magnitude* is not σ⁰ in dB.
-- Quicklook resolution is about 181 m per pixel, coarser than the native
-  GCOV posting (10–20 m).
-- Pixels outside the observation footprint are nodata and are rendered
-  transparent; they are excluded from all statistics.
-- No flood classification, flooded-area estimate or change percentage is
-  computed — those would require an implemented and validated method.
-
-**Upgrading to calibrated data:** `scripts/prepare_nisar_gcov.py` downloads
-the two GCOV HDF5 products with `earthaccess` (Earthdata Login required),
-extracts calibrated backscatter in dB and rewrites `public/data/` with the
-same schema (`encoding.type = "db_linear"`). The application then
-automatically displays dB values and a dB change layer — no code changes
-needed.
-
-## Data preparation
+`scripts/prepare_nisar_gcov.py` prepares calibrated dB rasters for **any**
+product IDs and AOI selected in the application (all inputs are command-line
+arguments):
 
 ```bash
-cd scripts
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-# what was used for the shipped dataset (public ASF quicklooks, no login):
-python prepare_nisar_quicklook.py
-
-# calibrated alternative (requires ~/.netrc Earthdata credentials):
-python prepare_nisar_gcov.py
+python prepare_nisar_gcov.py \
+  --scene-before <product id> --scene-after <product id> \
+  --window WEST SOUTH EAST NORTH \
+  --via harmony --keep-geotiff
 ```
 
-Scripts write `public/data/manifest.json` and
-`public/data/observations/*.png`. Credentials are used only for the download
-step and are never stored in the repository.
+Two retrieval backends (both require an Earthdata login, used server-side /
+offline only, never in the browser):
+
+- `--via harmony` — **NASA Harmony** spatial (bbox) + variable subsetting of
+  the GCOV product into a GeoTIFF covering only the AOI (verified via
+  `https://harmony.earthdata.nasa.gov/capabilities?shortName=NISAR_L2_GCOV_V1`:
+  `subsetting.bbox: true`, `subsetting.variable: true`, GeoTIFF/PNG output).
+  The full HDF5 product is never downloaded.
+- `--via hdf5` — lazy HDF5 reads through `earthaccess.open()` (HTTP range
+  requests): only the grid rows/columns covering the AOI are fetched.
+
+**Important:** `prepare_nisar_gcov.py` could not be executed in the build
+environment (no Earthdata credentials there); HDF5 dataset paths are located
+by introspection and the Harmony variable names are tried in order.
 
 ## Environment variables
 
-See `.env.example`. Configure them in the Vercel project settings (or a local
-`.env` used by `vercel dev`):
+See `.env.example`. Only the Gemini API key is required, and only for the
+"Explain this change" feature:
 
 | Variable | Required | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | for the AI feature | Gemini API key, **server-side only** (never use a `VITE_` prefix) |
 | `GEMINI_MODEL` | no | Gemini model id, default `gemini-2.5-flash` |
 
-There are no other secrets. If `GEMINI_API_KEY` is missing, the
-"Explain this change" button returns a clear configuration error and the rest
-of the application works normally.
+Metadata discovery and quicklook loading need **no credentials at all** —
+they use public endpoints directly from the browser. Earthdata
+authentication is required only for downloading calibrated GCOV products,
+which happens offline in `scripts/`, never when someone opens the website.
 
 ## Supabase
 
-**Not used.** The study area and acquisition metadata live in
-`public/data/manifest.json`, which is sufficient for this prototype, so no
-database is required and **no SQL setup is necessary**. Consequently there is
-no `supabase/schema.sql` file in this repository. If persistent storage is
-added later (e.g. saved analysis results), a schema file will be provided
-with that change.
+**Not used.** Discovery is live against the public catalogue and the example
+configuration lives in `public/data/manifest.json`, so no persistent storage
+is needed and **no SQL setup is necessary**. There is no `supabase/schema.sql`
+in this repository.
 
 ## The Gemini feature
 
-`POST /api/explain-change` (Vercel serverless function, `api/explain-change.ts`)
-receives only metadata and the calculated summary statistics for the current
-observation pair — never imagery — and returns a short structured
-explanation: `observedSignal`, `possibleIndication`, `limitations`
-(2–4 sentences total). The system instruction forbids inventing
-measurements, claiming to have inspected imagery, or presenting any single
-cause (flooding, deforestation, …) as established, and requires measured
+`POST /api/explain-change` (Vercel serverless function,
+`api/explain-change.ts`) receives only metadata and the calculated summary
+statistics for the currently selected area and pair — never imagery — and
+returns a short structured explanation: `observedSignal`,
+`possibleIndication`, `limitations` (2–4 sentences total). The system
+instruction forbids inventing measurements, claiming to have inspected
+imagery, or naming any single cause as established, and requires measured
 facts to be separated from interpretation.
 
 ## Run locally
@@ -162,33 +185,38 @@ node scripts/test-api.mjs
 2. Add `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`) under
    *Project → Settings → Environment Variables*.
 3. Deploy. The `api/` directory is picked up automatically as Vercel
-   serverless functions; `public/data/` is served as static assets.
+   serverless functions.
 
 ## Project structure
 
 ```text
 project/
 ├── public/
-│   └── data/
-│       ├── manifest.json            # study area, acquisitions, encodings
-│       └── observations/            # prepared before/after rasters per pol
+│   └── data/                        # prepared example dataset (manifest + rasters)
 ├── src/
 │   ├── components/
-│   │   ├── MapView.tsx              # Leaflet map, boundary, overlays, legend
-│   │   ├── ControlPanel.tsx         # study area, acquisition, pol, layer
-│   │   └── ObservationInfo.tsx      # metadata, calculated stats, AI feature
+│   │   ├── MapView.tsx              # global map, footprints, AOI, overlays, legend
+│   │   ├── SearchPanel.tsx          # location search, AOI controls, search button
+│   │   ├── ResultsPanel.tsx         # results, suggested pairs, scene metadata
+│   │   ├── ControlPanel.tsx         # acquisition, polarisation, display layer
+│   │   ├── ObservationInfo.tsx      # metadata, calculated stats, Gemini feature
+│   │   └── ui.tsx                   # shared section primitive
 │   ├── lib/
-│   │   ├── data.ts                  # manifest types and loaders
+│   │   ├── aoi.ts                   # area-of-interest geometry and parsing
+│   │   ├── geocode.ts               # place-name search (Nominatim, rate-limited)
+│   │   ├── discovery.ts             # ASF catalogue search + normalisation + cache
+│   │   ├── pairing.ts               # compatibility rules and pair suggestions
+│   │   ├── rasterSource.ts          # quicklook acquisition + AOI resampling
+│   │   ├── raster.ts                # canvas decode/render for overlays
 │   │   ├── changeDetection.ts       # deterministic change maths
-│   │   └── raster.ts                # canvas decode/render for overlays
+│   │   └── data.ts                  # dataset models and manifest loading
 │   ├── App.tsx
-│   ├── main.tsx
-│   └── index.css
+│   └── ...
 ├── api/
 │   └── explain-change.ts            # Vercel function, Gemini integration
 ├── scripts/
-│   ├── prepare_nisar_quicklook.py   # builds public/data (used for this build)
-│   ├── prepare_nisar_gcov.py        # calibrated variant (needs Earthdata login)
+│   ├── prepare_nisar_quicklook.py   # builds the example dataset
+│   ├── prepare_nisar_gcov.py        # calibrated rasters for any pair/AOI
 │   ├── test-api.mjs                 # endpoint smoke test
 │   └── requirements.txt
 ├── .env.example
@@ -197,13 +225,14 @@ project/
 
 ## Remaining limitations
 
-- The displayed rasters are quicklook renderings (see above); switching to
-  calibrated dB products requires Earthdata credentials and a run of
-  `scripts/prepare_nisar_gcov.py`.
-- One study area and one acquisition pair only, by design for this version.
-- The change layer is a raw pixel difference; no speckle filtering,
-  co-registration refinement or classification is applied.
-- `scripts/prepare_nisar_gcov.py` was written against the published GCOV
-  product structure but could not be executed in the build environment
-  (no Earthdata credentials there); dataset paths are located by
-  introspection and may need adjustment for future product revisions.
+- Dynamic comparisons use quicklook display values (see above); calibrated
+  dB comparisons require an offline run of `prepare_nisar_gcov.py`
+  (Earthdata login), after which the prepared pair is recognised and shown
+  as "calibrated" automatically.
+- Only NISAR L2 GCOV products are searched and displayed; other product
+  types would need their own rendering/processing support first.
+- Suggested pairs are ranked by AOI coverage and baseline; a pair with low
+  coverage can still be selected manually — the valid-pixel statistics make
+  this visible.
+- The result list is capped by the catalogue query limit (300 scenes) with
+  a truncation notice; narrow the date range or AOI for very dense areas.

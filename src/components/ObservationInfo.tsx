@@ -1,6 +1,10 @@
 import type { ChangeSummary } from "../lib/changeDetection";
-import type { Manifest } from "../lib/data";
-import { formatAcquisitionTime } from "../lib/data";
+import {
+  availabilityLabel,
+  formatAcquisitionTime,
+  type ViewerDataset,
+} from "../lib/data";
+import { Section } from "./ui";
 
 export interface AiExplanation {
   observedSignal: string;
@@ -15,7 +19,7 @@ export interface AiState {
 }
 
 interface ObservationInfoProps {
-  manifest: Manifest;
+  dataset: ViewerDataset;
   pol: string;
   summary: ChangeSummary | null;
   ai: AiState;
@@ -46,44 +50,33 @@ function formatNumber(n: number, unit: string): string {
 }
 
 export default function ObservationInfo({
-  manifest,
+  dataset,
   pol,
   summary,
   ai,
   onExplain,
 }: ObservationInfoProps) {
-  const { acquisitionPair, encoding, dataset } = manifest;
-
   return (
-    <section className="border-b border-app-border px-4 py-3.5">
-      <h2 className="text-[11px] font-medium tracking-[0.06em] text-app-muted uppercase">
-        Observation info
-      </h2>
-
-      <dl className="mt-2 divide-y divide-app-border/60">
-        <Row label="Study area">
-          {manifest.studyArea.name}, {manifest.studyArea.country}
-        </Row>
+    <Section title="Observation info">
+      <dl className="divide-y divide-app-border/60">
+        <Row label="Study area">{dataset.areaLabel}</Row>
         <Row label="Earlier acq.">
-          {formatAcquisitionTime(acquisitionPair.earlier.startTime)}
+          {formatAcquisitionTime(dataset.earlier.startTime)}
         </Row>
         <Row label="Later acq.">
-          {formatAcquisitionTime(acquisitionPair.later.startTime)}
+          {formatAcquisitionTime(dataset.later.startTime)}
         </Row>
-        <Row label="Sensor band">
-          {acquisitionPair.sensor} · {acquisitionPair.band} ·{" "}
-          {acquisitionPair.productType}
-        </Row>
+        <Row label="Sensor band">{dataset.productLine}</Row>
         <Row label="Polarisation">
-          {pol} · {manifest.rasters[pol]?.layer ?? "—"}
+          {pol} · {dataset.layers[pol] ?? "—"}
         </Row>
         <Row label="Product ID">
           <div className="space-y-0.5">
             <div className="break-all font-mono text-[10px] leading-[1.5] text-app-muted">
-              {acquisitionPair.earlier.productId}
+              {dataset.earlier.productId}
             </div>
             <div className="break-all font-mono text-[10px] leading-[1.5] text-app-muted">
-              {acquisitionPair.later.productId}
+              {dataset.later.productId}
             </div>
           </div>
         </Row>
@@ -97,7 +90,8 @@ export default function ObservationInfo({
             {dataset.source}
           </a>
         </Row>
-        <Row label="Unit">{encoding.unit}</Row>
+        <Row label="Unit">{dataset.encoding.unit}</Row>
+        <Row label="Raster">{availabilityLabel(dataset.availability)}</Row>
         <Row label="Difference">
           {summary && summary.validPixels > 0 ? (
             <div>
@@ -110,6 +104,12 @@ export default function ObservationInfo({
                 {formatNumber(summary.p75, summary.unit)} ·{" "}
                 {(summary.validFraction * 100).toFixed(1)}% valid pixels
               </div>
+              {summary.validFraction < 0.2 && (
+                <div className="text-[11px] text-app-muted">
+                  Most of the selected area lies outside this pair's
+                  observation footprint.
+                </div>
+              )}
             </div>
           ) : (
             "Not calculated"
@@ -162,6 +162,6 @@ export default function ObservationInfo({
           </div>
         )}
       </div>
-    </section>
+    </Section>
   );
 }

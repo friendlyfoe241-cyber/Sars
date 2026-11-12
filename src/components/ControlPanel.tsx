@@ -1,31 +1,15 @@
-import type { Manifest } from "../lib/data";
+import type { ViewerDataset } from "../lib/data";
 import { formatAcquisitionTime } from "../lib/data";
+import { Section } from "./ui";
 import type { DisplayLayer } from "./MapView";
 
 interface ControlPanelProps {
-  manifest: Manifest;
+  dataset: ViewerDataset;
   pol: string;
   onPolChange: (pol: string) => void;
   layer: DisplayLayer;
   onLayerChange: (layer: DisplayLayer) => void;
   computing: boolean;
-}
-
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="border-b border-app-border px-4 py-3.5">
-      <h2 className="text-[11px] font-medium tracking-[0.06em] text-app-muted uppercase">
-        {title}
-      </h2>
-      <div className="mt-2">{children}</div>
-    </section>
-  );
 }
 
 const LAYERS: { id: DisplayLayer; label: string }[] = [
@@ -35,52 +19,35 @@ const LAYERS: { id: DisplayLayer; label: string }[] = [
 ];
 
 export default function ControlPanel({
-  manifest,
+  dataset,
   pol,
   onPolChange,
   layer,
   onLayerChange,
   computing,
 }: ControlPanelProps) {
-  const { studyArea, acquisitionPair, encoding } = manifest;
-
   return (
     <div>
-      <Section title="Study area">
-        <div className="text-[13px] font-medium text-app-text">
-          {studyArea.name}
-        </div>
-        <div className="text-[12px] text-app-muted">
-          {studyArea.region}, {studyArea.country}
-        </div>
-        <p className="mt-1.5 text-[12px] leading-[1.5] text-app-text">
-          {studyArea.description}
-        </p>
-        <div className="mt-2 text-[11px] text-app-muted">
-          {studyArea.phenomenon}
-        </div>
-      </Section>
-
       <Section title="Acquisition">
         <dl className="space-y-1.5 text-[12px]">
           <div className="flex justify-between gap-3">
             <dt className="text-app-muted">Earlier</dt>
             <dd className="text-right text-app-text">
-              {formatAcquisitionTime(acquisitionPair.earlier.startTime)}
+              {formatAcquisitionTime(dataset.earlier.startTime)}
             </dd>
           </div>
           <div className="flex justify-between gap-3">
             <dt className="text-app-muted">Later</dt>
             <dd className="text-right text-app-text">
-              {formatAcquisitionTime(acquisitionPair.later.startTime)}
+              {formatAcquisitionTime(dataset.later.startTime)}
             </dd>
           </div>
           <div className="flex justify-between gap-3">
             <dt className="text-app-muted">Baseline</dt>
             <dd className="text-right text-app-text">
-              {acquisitionPair.temporalBaselineDays} days ·{" "}
-              {acquisitionPair.orbitDirection.toLowerCase()} ·{" "}
-              {acquisitionPair.band}
+              {dataset.temporalBaselineDays} days ·{" "}
+              {(dataset.earlier.flightDirection ?? "").toLowerCase()} ·{" "}
+              {dataset.band}
             </dd>
           </div>
         </dl>
@@ -93,7 +60,7 @@ export default function ControlPanel({
           className="block w-full rounded-[3px] border border-app-border bg-white px-2 py-1.5 text-[13px] text-app-text focus:border-app-accent focus:outline-none"
           aria-label="Polarisation channel"
         >
-          {acquisitionPair.polarisations.map((p) => (
+          {dataset.polarisations.map((p) => (
             <option key={p} value={p}>
               {p}
             </option>
@@ -124,8 +91,8 @@ export default function ControlPanel({
           {computing
             ? "Rendering…"
             : layer === "change"
-              ? `Pixel-level difference in ${manifest.changeScale.unit}`
-              : `Greyscale rendering · ${encoding.unit}`}
+              ? `Pixel-level difference in ${dataset.changeScale.unit}`
+              : `Greyscale rendering · ${dataset.encoding.unit}`}
         </div>
       </Section>
     </div>

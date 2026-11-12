@@ -4,7 +4,11 @@ asf_search>=8.0
 numpy>=1.26
 Pillow>=10.0
 
-# Required only for the calibrated path (scripts/prepare_nisar_gcov.py):
+# Required for the calibrated path (scripts/prepare_nisar_gcov.py):
 earthaccess>=0.13
 h5py>=3.10
 pyproj>=3.6
+
+# Optional, only for --via harmony (NASA Harmony GeoTIFF subsetting):
+harmony-py>=1.0
+rasterio>=1.3

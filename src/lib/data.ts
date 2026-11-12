@@ -1,10 +1,19 @@
-// Types and loaders for the prepared observation dataset.
-// The dataset is described by public/data/manifest.json, which is produced by
-// the scripts in scripts/ and is the single source of truth for study areas,
-// acquisitions and raster encodings. Adding another study area later means
-// adding entries there (and their rasters), not changing this code.
+// Types and loaders for datasets shown in the viewer.
+//
+// Two raster sources feed the same viewer model:
+//   1. a prepared local dataset (public/data/manifest.json, produced by the
+//      scripts in scripts/) — the shipped example and the calibrated path;
+//   2. dynamic pairs built in the browser from discovered NISAR scenes
+//      (src/lib/rasterSource.ts).
+// The viewer only ever sees ViewerDataset + rasters, so rendering, change
+// statistics and the Gemini feature are shared unchanged.
 
 export type DatasetStatus = "nisar_quicklook" | "nisar_calibrated" | "demo";
+
+export type RasterAvailability =
+  | "calibrated" // calibrated raster prepared and ready
+  | "quicklook" // public quicklook rendering ready
+  | "metadata-only"; // catalogue metadata only, raster not prepared
 
 export interface RasterEncoding {
   type: "quicklook_dn" | "db_linear";
@@ -29,6 +38,25 @@ export interface Acquisition {
   processingLevel: string | null;
   processingSoftwareVersion: string | null;
   crid: string | null;
+}
+
+/** What the viewer components need to know about the loaded observation pair. */
+export interface ViewerDataset {
+  status: DatasetStatus;
+  availability: RasterAvailability;
+  areaLabel: string;
+  source: string;
+  productLine: string;
+  band: string;
+  productType: string;
+  polarisations: string[];
+  layers: Record<string, string>;
+  encoding: RasterEncoding;
+  changeScale: { saturation: number; unit: string };
+  earlier: Acquisition;
+  later: Acquisition;
+  temporalBaselineDays: number;
+  limitations: string[];
 }
 
 export interface Manifest {
@@ -85,8 +113,16 @@ export interface Manifest {
   >;
 }
 
-export async function loadManifest(): Promise<Manifest> {
-  const res = await fetch(`${import.meta.env.BASE_URL}data/manifest.json`);
+/** Prepared dataset reference: a locally prepared pair and its raster window. */
+export interface PreparedDataset {
+  manifest: Manifest;
+  /** product IDs of the prepared pair */
+  beforeId: string;
+  afterId: string;
+}
+
+export async function loadManifest(url = `${import.meta.env.BASE_URL}data/manifest.json`): Promise<Manifest> {
+  const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Could not load data/manifest.json (${res.status})`);
   }
@@ -139,5 +175,32 @@ export function datasetStatusNote(status: DatasetStatus): string {
       return "Calibrated NISAR L2 GCOV backscatter (dB).";
     case "demo":
       return "Illustrative SAR fixture, not a real observation.";
+  }
+}
+
+export function availabilityLabel(availability: RasterAvailability): string {
+  switch (availability) {
+    case "calibrated":
+      return "Calibrated raster ready";
+    case "quicklook":
+      return "Quicklook raster ready (display DN)";
+    case "metadata-only":
+      return "Metadata only — raster not prepared";
+  }
+}
+
+/** Layer label for a polarisation channel of a GCOV product. */
+export function layerLabel(pol: string): string {
+  switch (pol) {
+    case "HH":
+      return "C11 (HHHH)";
+    case "HV":
+      return "C22 (HVHV)";
+    case "VV":
+      return "C11 (VVVV)";
+    case "VH":
+      return "C22 (VHVH)";
+    default:
+      return `${pol}${pol}`;
   }
 }
