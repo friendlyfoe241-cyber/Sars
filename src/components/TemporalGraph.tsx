@@ -470,7 +470,8 @@ function TemporalGraph({ status, stats, channel, view, onView }: TemporalGraphPr
         {caption}
       </p>
       {!message && own && stats && view === "date" && (
-        <table className="sr-only">
+        <div className="sr-only">
+        <table>
           <caption>Brightness by acquisition date, {channel}, {stats.displayDn ? "display DN" : "stored DN"}</caption>
           <thead>
             <tr>
@@ -495,6 +496,7 @@ function TemporalGraph({ status, stats, channel, view, onView }: TemporalGraphPr
             ))}
           </tbody>
         </table>
+        </div>
       )}
       {!message && own && stats && view === "change" && (
         <p className="sr-only">

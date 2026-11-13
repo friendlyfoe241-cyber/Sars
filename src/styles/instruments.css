@@ -88,6 +88,9 @@
 
 /* ---- tables --------------------------------------------------------------- */
 .orb-instr-scroll {
+  /* containing block for the absolutely positioned .sr-only text inside the
+     table cells: without it they escape this scroller and widen the page */
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
@@ -250,7 +253,7 @@
 }
 
 /* ---- graph ----------------------------------------------------------------- */
-.orb-graph { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.orb-graph { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .orb-graph__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 6px 12px 0; flex: none; }
 .orb-graph__seg { flex: none; padding: 2px; gap: 2px; flex-wrap: nowrap; }
 .orb-graph__seg .orb-segment { flex: 0 0 auto; padding-inline: 10px; }
@@ -283,6 +286,8 @@
 .orb-mark__hit { fill: transparent; stroke: none; }
 .orb-mark:hover > .orb-mark__hit { fill: rgb(255 255 255 / 4%); }
 .orb-mark:focus-visible > .orb-mark__hit { stroke: var(--orb-focus); stroke-width: 2; }
+/* Put .sr-only on a wrapper, never on a <table>: a table ignores width:1px and
+   stays as wide as its content, widening the page's scrollable area. */
 .sr-only {
   position: absolute;
   width: 1px;

@@ -69,6 +69,13 @@
 .leaflet-bottom { bottom: var(--orb-bottom-inset, 0); }
 .leaflet-top.leaflet-left { margin: 12px 0 0 12px; }
 
+@media (max-width: 767px) {
+  /* Compare: the BEFORE / AFTER labels run along the top of the map (up to
+     three lines, ~58px), so the zoom + basemap controls start below them
+     instead of crowding the BEFORE label */
+  .orb-map:has(.orb-compare) .leaflet-top.leaflet-left { margin-top: 82px; }
+}
+
 @media (min-width: 1024px) {
   /* zoom + basemap: anchored to the right edge of the free map area, below
      the top bar (--orb-free-* are published by MapView from the open panels) */
