@@ -7,9 +7,9 @@
     "access": "Granule metadata from CMR; displayed rasters are the public ASF browse quicklooks of the GCOV C11 (HHHH) and C22 (HVHV) layers.",
     "limitations": [
       "Displayed values are 8-bit quicklook renderings (display DN), not calibrated backscatter in dB.",
-      "The change layer is a difference of those display values; it preserves the sign of change under the shared quicklook rendering but its magnitude is not sigma0.",
+      "The change layer is a difference of those display values; it preserves the sign of change under the shared quicklook rendering but its magnitude is not calibrated backscatter.",
       "Quicklook resolution is about 181 m per pixel, coarser than the native GCOV posting.",
-      "Calibrated sigma0/dB rasters require the GCOV HDF5 products (Earthdata login); see scripts/prepare_nisar_gcov.py."
+      "Calibrated gamma-0 backscatter rasters (dB) require the GCOV HDF5 products (Earthdata login); see scripts/prepare_nisar_gcov.py."
     ]
   },
   "studyArea": {
@@ -112,7 +112,7 @@
     "type": "quicklook_dn",
     "unit": "display DN",
     "nodata": 0,
-    "description": "8-bit ASF browse quicklook rendering of the GCOV C11 (HH) / C22 (HV) layers; monotonic with calibrated backscatter under the shared quicklook rendering. 0 marks nodata / outside the observation footprint."
+    "description": "8-bit ASF browse quicklook rendering of the GCOV C11 (HH) / C22 (HV) layers; the scaling of the browse rendering is not documented, so DN differences are display-brightness differences only. 0 marks nodata / outside the observation footprint."
   },
   "changeScale": {
     "saturation": 75,

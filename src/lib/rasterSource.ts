@@ -30,7 +30,7 @@ export const QUICKLOOK_ENCODING: RasterEncoding = {
   unit: "display DN",
   nodata: 0,
   description:
-    "8-bit ASF browse quicklook rendering of the GCOV polarimetric layers; monotonic with calibrated backscatter under the shared quicklook rendering. 0 marks nodata / outside the observation footprint.",
+    "8-bit ASF browse quicklook rendering of the GCOV polarimetric layers; the scaling of the browse rendering is not documented, so DN differences are display-brightness differences only. 0 marks nodata / outside the observation footprint.",
 };
 
 export const DEFAULT_OUTPUT_WIDTH = 768;
@@ -520,9 +520,9 @@ export interface PairDataset {
 
 const QUICKLOOK_LIMITATIONS = (gridPixelM: number) => [
   "Displayed values are 8-bit quicklook renderings (display DN), not calibrated backscatter in dB.",
-  "The change layer is a difference of those display values; it preserves the sign of change under the shared quicklook rendering but its magnitude is not sigma0.",
+  "The change layer is a difference of those display values; it preserves the sign of change under the shared quicklook rendering but its magnitude is not calibrated backscatter.",
   `Source quicklooks are about 180 m per pixel and are resampled to the AOI grid (${gridPixelM} m per pixel).`,
-  "Calibrated sigma0/dB rasters require the GCOV products (Earthdata login); see scripts/prepare_nisar_gcov.py.",
+  "Calibrated gamma-0 backscatter rasters (dB) require the GCOV products (Earthdata login); see scripts/prepare_nisar_gcov.py.",
 ];
 
 function baselineDays(a: string, b: string): number {
