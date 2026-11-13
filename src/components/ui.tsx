@@ -24,7 +24,7 @@ export function Section({
 
 /**
  * A floating instrument panel: 48px header, optional collapse, scrolling body.
- * Glass over the map on desktop; on small screens it is an in-flow panel.
+ * Solid surface: a backdrop blur would re-blur a large map region every frame.
  */
 export function Dock({
   id,
@@ -48,7 +48,7 @@ export function Dock({
   const bodyId = `${id}-body`;
   return (
     <aside className={className} hidden={hidden} aria-labelledby={`${id}-title`}>
-      <div className="orb-panel orb-panel--glass orb-dock" data-collapsed={collapsed}>
+      <div className="orb-panel orb-dock" data-collapsed={collapsed}>
         <div className="orb-dock__head">
           <div>
             {eyebrow && <span className="orb-eyebrow">{eyebrow}</span>}

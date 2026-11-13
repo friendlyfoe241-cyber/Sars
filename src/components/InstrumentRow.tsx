@@ -53,7 +53,7 @@ function Panel({
   return (
     <section
       id={`instrument-${id}`}
-      className="orb-panel orb-panel--glass orb-instr__panel"
+      className="orb-panel orb-instr__panel"
       aria-labelledby={`instrument-${id}-title`}
       tabIndex={-1}
     >
@@ -127,7 +127,7 @@ export default function InstrumentRow({
     };
     return (
       <div className="orb-bottom" id="instruments" data-layout="mid">
-        <section className="orb-panel orb-panel--glass orb-instr__panel" aria-label="Instruments">
+        <section className="orb-panel orb-instr__panel" aria-label="Instruments">
           <header className="orb-instr__head">
             <div role="tablist" aria-label="Instrument panels" className="orb-instr__tabs" onKeyDown={onKey}>
               {TABS.map((t) => (
