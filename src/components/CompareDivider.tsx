@@ -140,8 +140,13 @@ export default function CompareDivider({
     const afterLabel = afterLabelRef.current;
     if (!root || !line || !grip || !beforeLabel || !afterLabel) return;
 
+    // Everything that needs layout is measured in relayout() and cached, so
+    // render() only writes (no forced reflow per map move / pointermove).
     let range = measure(container);
     let width = container.clientWidth;
+    let containerLeft = container.getBoundingClientRect().left;
+    let beforeW = 0;
+    let afterW = 0;
 
     const render = () => {
       const frac = position.current;
@@ -166,8 +171,8 @@ export default function CompareDivider({
 
       // A label is hidden when its side is (nearly) gone, so text never
       // touches the divider.
-      const beforeRight = range.labelLeft + beforeLabel.offsetWidth;
-      const afterLeft = width - range.labelRight - afterLabel.offsetWidth;
+      const beforeRight = range.labelLeft + beforeW;
+      const afterLeft = width - range.labelRight - afterW;
       beforeLabel.dataset.off = String(frac <= 0 || x < beforeRight + GAP);
       afterLabel.dataset.off = String(frac >= 1 || x > afterLeft - GAP);
 
@@ -175,16 +180,20 @@ export default function CompareDivider({
       grip.setAttribute("aria-valuenow", String(pct));
       grip.setAttribute("aria-valuetext", `${pct}%`);
     };
-    apply.current = render;
 
     const relayout = () => {
       range = measure(container);
       width = container.clientWidth;
+      containerLeft = container.getBoundingClientRect().left;
+      // labels are positioned by render(); their width does not depend on it
+      beforeW = beforeLabel.offsetWidth;
+      afterW = afterLabel.offsetWidth;
       render();
     };
+    apply.current = relayout;
 
     relayout();
-    map.on("move zoom zoomend moveend viewreset resize", render);
+    map.on("move viewreset resize zoomend", render);
     const observer = new ResizeObserver(relayout);
     observer.observe(container);
     container.closest(".orb-shell")?.querySelectorAll(".orb-left, .orb-right, .orb-top").forEach((el) => observer.observe(el));
@@ -214,15 +223,26 @@ export default function CompareDivider({
     const finish = () => {
       if (!dragging) return;
       dragging = false;
+      if (moveRaf) cancelAnimationFrame(moveRaf);
+      flush(); // apply the last pointer position
       restorePanning();
       delete grip.dataset.dragging;
     };
-    const setFromClientX = (clientX: number) => {
-      const cr = container.getBoundingClientRect();
+    // pointermove is coalesced to one update per animation frame
+    let pendingX: number | null = null;
+    let moveRaf = 0;
+    const flush = () => {
+      moveRaf = 0;
+      if (pendingX === null) return;
       const span = range.right - range.left;
-      const frac = span > 0 ? (clientX - cr.left - grab - range.left) / span : 0.5;
+      const frac = span > 0 ? (pendingX - containerLeft - grab - range.left) / span : 0.5;
+      pendingX = null;
       position.current = Math.min(1, Math.max(0, frac));
       render();
+    };
+    const setFromClientX = (clientX: number) => {
+      pendingX = clientX;
+      if (!moveRaf) moveRaf = requestAnimationFrame(flush);
     };
     const onDown = (e: PointerEvent) => {
       if (e.button !== 0 && e.pointerType === "mouse") return;
@@ -232,10 +252,10 @@ export default function CompareDivider({
       dragging = true;
       pointerId = e.pointerId;
       grip.setPointerCapture(e.pointerId);
-      const cr = container.getBoundingClientRect();
+      containerLeft = container.getBoundingClientRect().left;
       const lineX = range.left + position.current * (range.right - range.left);
       // keep the grab point under the pointer; no jump to the pointer
-      grab = Math.max(-GRIP / 2, Math.min(GRIP / 2, e.clientX - cr.left - lineX));
+      grab = Math.max(-GRIP / 2, Math.min(GRIP / 2, e.clientX - containerLeft - lineX));
       if (map.dragging.enabled()) {
         map.dragging.disable();
         weDisabledPanning = true;
@@ -308,7 +328,8 @@ export default function CompareDivider({
 
     return () => {
       cancelAnimationFrame(raf);
-      map.off("move zoom zoomend moveend viewreset resize", render);
+      if (moveRaf) cancelAnimationFrame(moveRaf);
+      map.off("move viewreset resize zoomend", render);
       observer.disconnect();
       mutations.disconnect();
       for (const t of stopTypes) grip.removeEventListener(t, stop);
