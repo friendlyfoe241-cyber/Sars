@@ -56,7 +56,7 @@ export default function StatsPanel({ dataset, pol, summary, statsInRow, onShowRe
           <KeyRow label="Median">{has ? formatNumber(summary.median, unit) : "Not calculated"}</KeyRow>
           <KeyRow label="Mean">{has ? formatNumber(summary.mean, unit) : "Not calculated"}</KeyRow>
           <KeyRow label="IQR">
-            {has ? `${formatNumber(summary.p25, unit)} to ${formatNumber(summary.p75, unit)}` : "Not calculated"}
+            {has ? `${formatSigned(summary.p25)} to ${formatSigned(summary.p75)} ${unit}` : "Not calculated"}
           </KeyRow>
           <KeyRow label="Valid pixels">
             {summary && summary.totalPixels > 0 ? `${formatPlain(summary.validFraction * 100)}%` : "Not calculated"}
