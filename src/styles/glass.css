@@ -81,6 +81,7 @@
   animation: lg-sheen 11s cubic-bezier(0.45, 0, 0.2, 1) infinite;
 }
 .lg-c {
+  --p: 0; /* content never reads --p: stop proximity updates restyling it */
   position: relative;
   z-index: 1;
 }
@@ -90,6 +91,14 @@
    cursor is far away (the clear state).  Used wherever there is text. */
 .lg-dark .lg-tint {
   background: rgba(6, 8, 16, calc(0.7 + 0.12 * var(--p)));
+}
+/* The dark surface (header) is a permanent fixture: no animated displacement
+   filter and no endless sheen, so it never repaints on its own. */
+.lg-dark .lg-liq {
+  filter: none;
+}
+.lg-dark .lg-rim::after {
+  display: none;
 }
 
 /* lg-panel: large reading surfaces (sidebar, dock, legend, map controls).

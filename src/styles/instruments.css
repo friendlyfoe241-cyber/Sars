@@ -178,7 +178,6 @@
 .vx-itable thead .vx-itable__num,
 .vx-itable .vx-itable__num { text-align: right; }
 .vx-itable thead .vx-itable__num { font-family: var(--vx-font-mono); }
-.vx-itable__unit { color: var(--vx-text-muted); font-size: 11px; }
 .vx-itable__name { display: block; font-weight: 500; }
 .vx-itable__note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vx-itable__trunc { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -215,7 +214,6 @@
   font: 400 11px/16px var(--vx-font-mono);
   white-space: nowrap;
 }
-.vx-itable__role { font-weight: 500; }
 .vx-itable__actions { display: inline-flex; gap: 4px; }
 .vx-itable__actions .vx-button { min-width: 44px; }
 .vx-itable__sort,
@@ -266,14 +264,6 @@
   color: var(--vx-text-muted);
   font-size: 13px;
   line-height: 20px;
-}
-.vx-instr-more {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 12px;
-  border-top: 1px solid var(--vx-border);
 }
 .vx-instr-foot {
   margin: 0;

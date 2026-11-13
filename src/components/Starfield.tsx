@@ -4,7 +4,15 @@ import { useMemo } from "react";
  * Deep-space backdrop: a seeded field of twinkling stars plus two faint
  * nebula clouds that drift very slowly. Purely decorative.
  */
-export default function Starfield({ count = 140, nebula = true }: { count?: number; nebula?: boolean }) {
+export default function Starfield({
+  count = 140,
+  nebula = true,
+  animate = true,
+}: {
+  count?: number;
+  nebula?: boolean;
+  animate?: boolean;
+}) {
   const stars = useMemo(() => {
     let seed = 7;
     const rnd = () => {
@@ -63,7 +71,7 @@ export default function Starfield({ count = 140, nebula = true }: { count?: numb
             height: s.r,
             background: s.tint,
             boxShadow: s.r > 1.5 ? `0 0 6px ${s.tint}` : undefined,
-            animation: `star-twinkle ${s.d}s ease-in-out ${s.delay}s infinite`,
+            animation: animate ? `star-twinkle ${s.d}s ease-in-out ${s.delay}s infinite` : undefined,
           }}
         />
       ))}

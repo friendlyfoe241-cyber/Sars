@@ -19,6 +19,9 @@ interface Spring {
   rest: boolean;
 }
 
+const reducedMotion = () =>
+  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 /**
  * A tiny spring engine. Call `spring(key, target, preset, initial)` during
  * render: it returns the live spring and re-renders the component every frame
@@ -73,6 +76,18 @@ export function useSprings() {
 
   const spring = (key: string, target: number, preset: SpringPreset, init?: number) => {
     let p = s.sp.get(key);
+    if (reducedMotion()) {
+      // snap: no animation, no per-frame re-renders
+      if (!p) {
+        p = { x: target, v: 0, t: target, k: preset[0], c: preset[1], eps: preset[2], rest: true };
+        s.sp.set(key, p);
+      } else {
+        p.x = p.t = target;
+        p.v = 0;
+        p.rest = true;
+      }
+      return p;
+    }
     if (!p) {
       p = { x: init ?? 0, v: 0, t: target, k: preset[0], c: preset[1], eps: preset[2], rest: false };
       s.sp.set(key, p);

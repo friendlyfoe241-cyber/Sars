@@ -114,6 +114,9 @@ export default function App() {
   const [heroIntro, setHeroIntro] = useState(true);
   const [wsKey, setWsKey] = useState(0);
   const [step, setStep] = useState<StepId>("locate");
+  const stepRef = useRef<StepId>("locate");
+  // the step auto-advance last put the user on (null once they navigate away)
+  const autoRef = useRef<StepId | null>(null);
   const [morph, setMorph] = useState<{ key: number; from: MorphRect | null }>({ key: 0, from: null });
   const [vw, setVw] = useState({ w: window.innerWidth, h: window.innerHeight });
   const [headerBottom, setHeaderBottom] = useState(88);
@@ -667,9 +670,19 @@ export default function App() {
   };
 
   useEffect(() => {
-    const onResize = () => setVw({ w: window.innerWidth, h: window.innerHeight });
+    let raf = 0;
+    const onResize = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        setVw({ w: window.innerWidth, h: window.innerHeight });
+      });
+    };
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onResize);
+    };
   }, []);
 
   // The sidebar sits just under the floating header, whatever its height.
@@ -686,6 +699,7 @@ export default function App() {
 
   /** Switch step; the glass sidebar grows out of `from` into place. */
   const goStep = useCallback((id: StepId, from: MorphRect | null) => {
+    stepRef.current = id;
     setStep(id);
     setSheetCollapsed(false);
     setMorph((m) => ({ key: m.key + 1, from }));
@@ -695,21 +709,40 @@ export default function App() {
     const el = document.querySelector(`[data-step="${id}"]`);
     return el ? rectOf(el.getBoundingClientRect()) : null;
   };
-  const autoStep = useCallback((id: StepId) => goStep(id, tabRect(id)), [goStep]);
+  const autoStep = useCallback(
+    (id: StepId) => {
+      // already there: replaying the morph would remount the sidebar
+      if (stepRef.current === id) return;
+      goStep(id, tabRect(id));
+    },
+    [goStep],
+  );
   const goTo = useCallback((id: StepId) => autoStep(id), [autoStep]);
 
   // Walk the user forward as the workflow progresses: a search starts ->
   // Scenes; compatible pairs found -> Pairs; a pair is ready -> Change.
   const prevSearching = useRef(false);
   useEffect(() => {
-    if (searching && !prevSearching.current) autoStep("scenes");
-    if (!searching && prevSearching.current && !searchError && pairs.length > 0) autoStep("pairs");
+    if (searching && !prevSearching.current) {
+      autoStep("scenes");
+      autoRef.current = "scenes";
+    }
+    if (!searching && prevSearching.current && !searchError && pairs.length > 0) {
+      // only if the user is still where auto-advance left them
+      if (stepRef.current === autoRef.current) {
+        autoStep("pairs");
+        autoRef.current = "pairs";
+      }
+    }
     prevSearching.current = searching;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searching]);
   const prevLoaded = useRef(pairLoaded);
   useEffect(() => {
-    if (pairLoaded && !prevLoaded.current) autoStep("change");
+    if (pairLoaded && !prevLoaded.current && (stepRef.current === autoRef.current || stepRef.current === "pairs")) {
+      autoStep("change");
+      autoRef.current = "change";
+    }
     prevLoaded.current = pairLoaded;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pairLoaded]);
@@ -723,6 +756,18 @@ export default function App() {
     },
     [goStep],
   );
+  // After entering from the hero, move focus to the sidebar's step heading.
+  const wasHero = useRef(true);
+  useEffect(() => {
+    if (wasHero.current && !heroOpen) {
+      const id = requestAnimationFrame(() =>
+        document.getElementById("step-heading")?.focus({ preventScroll: true }),
+      );
+      wasHero.current = false;
+      return () => cancelAnimationFrame(id);
+    }
+    wasHero.current = heroOpen;
+  }, [heroOpen]);
   const handleGlobe = useCallback(() => {
     setHeroIntro(false);
     setHeroOpen(true);
@@ -1091,7 +1136,7 @@ export default function App() {
         <StepIcon id={step} size={22} />
       </span>
       <div className="min-w-0 flex-1">
-        <h2 className="m-0 text-[22px] leading-tight">{stepDef.label}</h2>
+        <h2 id="step-heading" tabIndex={-1} className="m-0 text-[22px] leading-tight outline-none focus:outline-none">{stepDef.label}</h2>
         {!(sheetCollapsed && phone) && <p className="m-0 text-[12px] text-app-muted">{stepBlurb[step]}</p>}
       </div>
       {showSheetChrome && (
@@ -1116,11 +1161,11 @@ export default function App() {
       className="vx-shell relative h-full overflow-hidden bg-black text-app-text"
       style={{ ["--vx-dock-left" as string]: `${dockLeft}px` }}
     >
-      <LiquidGlassFilter />
+      <LiquidGlassFilter animate={heroOpen} />
 
       {/* deep space behind a full-bleed map */}
       <div className="absolute inset-0" aria-hidden="true">
-        <Starfield count={110} />
+        <Starfield count={110} animate={false} nebula={false} />
       </div>
       <main className="vx-map-host absolute inset-0" inert={heroOpen}>
         <MapView
@@ -1206,6 +1251,7 @@ export default function App() {
           observations={observationsTable}
           results={resultsTable}
           graph={temporalGraph}
+          inert={heroOpen}
         />
       )}
 

@@ -33,7 +33,7 @@ export default function Glass({
 }
 
 /** Hidden SVG filter used by .lg-liq. The noise drifts so idle glass ripples. */
-export function LiquidGlassFilter({ refraction = 90 }: { refraction?: number }) {
+export function LiquidGlassFilter({ refraction = 90, animate = true }: { refraction?: number; animate?: boolean }) {
   // A continuously animated filter re-renders every glass surface that uses it;
   // with reduced motion the noise stays still.
   const still =
@@ -55,7 +55,7 @@ export function LiquidGlassFilter({ refraction = 90 }: { refraction?: number }) 
           seed={92}
           result="noise"
         >
-          {!still && (
+          {animate && !still && (
             <animate
               attributeName="baseFrequency"
               dur="16s"

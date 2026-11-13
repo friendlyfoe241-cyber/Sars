@@ -24,24 +24,31 @@ export function useGlassProximity() {
       last = ts;
       const k = 1 - Math.exp(-dt * 6);
       let moving = false;
-      document.querySelectorAll<HTMLElement>(".lg").forEach((el) => {
-        let target = 0;
-        if (hasCursor) {
-          const r = el.getBoundingClientRect();
-          const dx = Math.max(r.left - mx, 0, mx - r.right);
-          const dy = Math.max(r.top - my, 0, my - r.bottom);
-          const d = Math.hypot(dx, dy);
-          target = d === 0 ? 1 : Math.max(0, 1 - d / NEAR_PX) * NEAR_MAX;
-        }
-        const cur = current.get(el) ?? 0;
+      // Read every rect first, then write every --p: no layout thrash.
+      const els = Array.from(document.querySelectorAll<HTMLElement>(".lg")).filter(
+        (el) => !el.closest("[inert]") && !el.hasAttribute("data-p-fixed"),
+      );
+      const targets = els.map((el) => {
+        if (!hasCursor) return 0;
+        const r = el.getBoundingClientRect();
+        const dx = Math.max(r.left - mx, 0, mx - r.right);
+        const dy = Math.max(r.top - my, 0, my - r.bottom);
+        const d = Math.hypot(dx, dy);
+        return d === 0 ? 1 : Math.max(0, 1 - d / NEAR_PX) * NEAR_MAX;
+      });
+      const writes: [HTMLElement, number][] = [];
+      els.forEach((el, i) => {
+        const target = targets[i];
+        const cur = current.get(el) ?? (parseFloat(el.style.getPropertyValue("--p")) || 0);
         let next = cur + (target - cur) * k;
         if (Math.abs(next - target) < 0.003) next = target;
         else moving = true;
         if (next !== cur) {
           current.set(el, next);
-          el.style.setProperty("--p", next.toFixed(3));
+          writes.push([el, next]);
         }
       });
+      writes.forEach(([el, v]) => el.style.setProperty("--p", v.toFixed(3)));
       if (moving) raf = requestAnimationFrame(tick);
       else last = 0;
     };

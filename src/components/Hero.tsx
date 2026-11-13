@@ -30,7 +30,8 @@ export default function Hero({
 }) {
   const { spring } = useSprings();
   const rootRef = useRef<HTMLDivElement>(null);
-  const [phase, setPhase] = useState<Phase>(intro ? "pre" : "menu");
+  const reduced = useRef(window.matchMedia("(prefers-reduced-motion: reduce)").matches).current;
+  const [phase, setPhase] = useState<Phase>(intro && !reduced ? "pre" : "menu");
   const [hover, setHover] = useState<number | null>(null);
   const [opening, setOpening] = useState<{ i: number; from: Rect } | null>(null);
   const [size, setSize] = useState({ w: 1440, h: 900 });
@@ -48,7 +49,7 @@ export default function Hero({
   }, []);
 
   useEffect(() => {
-    if (!intro && run === 0) return;
+    if ((!intro && run === 0) || reduced) return;
     setPhase("pre");
     const a = setTimeout(() => setPhase("float"), 120);
     const b = setTimeout(() => setPhase("menu"), 2400);
@@ -56,7 +57,16 @@ export default function Hero({
       clearTimeout(a);
       clearTimeout(b);
     };
-  }, [intro, run]);
+  }, [intro, run, reduced]);
+
+  // Menu reached: focus the first command, but only when the user brought the
+  // hero up (Globe button) or nothing else holds focus.
+  useEffect(() => {
+    if (phase !== "menu") return;
+    const ae = document.activeElement;
+    if (intro && ae && ae !== document.body) return;
+    rootRef.current?.querySelector<HTMLButtonElement>("nav[aria-label='Command'] button")?.focus({ preventScroll: true });
+  }, [phase, intro]);
 
   const W = size.w;
   const H = size.h;
@@ -135,7 +145,7 @@ export default function Hero({
           width: globeSize,
           height: globeSize,
           transform: `translate(-50%, ${gy.x}%) scale(${gs.x}) rotate(${tilt.x}deg)`,
-          filter: `blur(${dim * 6}px) brightness(${1 - dim * 0.45})`,
+          filter: dim <= 0.001 ? "none" : `blur(${dim * 6}px) brightness(${1 - dim * 0.45})`,
           opacity: globeOp,
         }}
       >
@@ -150,7 +160,7 @@ export default function Hero({
               animation: "hero-glow 6s ease-in-out infinite",
             }}
           />
-          <img src={`${import.meta.env.BASE_URL}globe.webp`} alt="" className="relative block h-full w-full rounded-full" draggable={false} />
+          <img src={`${import.meta.env.BASE_URL}globe.webp`} alt="" width={1200} height={1200} fetchPriority="high" decoding="async" className="relative block h-full w-full rounded-full" draggable={false} />
           <div
             className="absolute inset-0 rounded-full"
             style={{

@@ -63,8 +63,18 @@ export function coveredInsets(container: HTMLElement, gap: number): Insets {
  * Calls `cb` whenever the map or any covering surface changes size, appears,
  * disappears or moves.  Returns the disposer.
  */
-export function observeLayout(container: HTMLElement, cb: () => void): () => void {
+export function observeLayout(container: HTMLElement, rawCb: () => void): () => void {
   const shell = container.closest(".vx-shell");
+  // Every source funnels through one rAF so a burst of events (dragging the
+  // window edge, a panel morph) fires the callback at most once per frame.
+  let raf = 0;
+  const cb = () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      rawCb();
+    });
+  };
   const ro = new ResizeObserver(cb);
   const watch = () => {
     ro.disconnect();
@@ -87,6 +97,8 @@ export function observeLayout(container: HTMLElement, cb: () => void): () => voi
   window.addEventListener(LAYOUT_EVENT, cb);
   window.addEventListener("resize", cb);
   return () => {
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
     ro.disconnect();
     mo?.disconnect();
     window.removeEventListener(LAYOUT_EVENT, cb);

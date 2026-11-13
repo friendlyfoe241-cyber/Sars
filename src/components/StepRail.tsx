@@ -19,9 +19,19 @@ export default function StepRail({
 }) {
   const [wide, setWide] = useState(() => window.innerWidth >= 1100);
   useEffect(() => {
-    const on = () => setWide(window.innerWidth >= 1100);
+    let raf = 0;
+    const on = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        setWide(window.innerWidth >= 1100);
+      });
+    };
     window.addEventListener("resize", on);
-    return () => window.removeEventListener("resize", on);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener("resize", on);
+    };
   }, []);
   const BW = wide ? 104 : 48;
 
@@ -59,7 +69,7 @@ export default function StepRail({
             data-step={step.id}
             onClick={(e: MouseEvent<HTMLButtonElement>) => onPick(step.id, e.currentTarget.getBoundingClientRect())}
             aria-current={on ? "step" : undefined}
-            aria-label={wide ? undefined : step.label}
+            aria-label={ok ? (wide ? undefined : step.label) : `${step.label}, locked: ${step.locked}`}
             title={ok ? step.label : `${step.label}: ${step.locked}`}
             className="lg-btn relative flex items-center justify-center gap-2 rounded-full border-0 bg-transparent text-[14px]"
             style={{ width: BW, minHeight: 44, color: on ? "#fff" : ok ? "#C9D0DA" : "#7E8794" }}

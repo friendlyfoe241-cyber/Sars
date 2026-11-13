@@ -14,6 +14,8 @@ interface InstrumentDockProps {
   /** "dock": glass bar along the bottom of the free map area (collapsible).
    *  "inline": the same content inside a sidebar step (phones). */
   variant: "dock" | "inline";
+  /** Hide from focus and assistive tech (while the hero covers the app). */
+  inert?: boolean;
   open: boolean;
   onToggle: () => void;
   tab: InstrumentTab;
@@ -55,6 +57,7 @@ export default function InstrumentDock({
   observations,
   results,
   graph,
+  inert,
 }: InstrumentDockProps) {
   const tabRefs = useRef<Partial<Record<InstrumentTab, HTMLButtonElement | null>>>({});
   const content: Record<InstrumentTab, ReactNode> = { observations, results, graph };
@@ -75,7 +78,7 @@ export default function InstrumentDock({
 
   if (!inline && !open) {
     return (
-      <div className="vx-bottom" data-cover="bottom" data-open="false">
+      <div className="vx-bottom" data-cover="bottom" data-open="false" inert={inert}>
         <Glass className="lg-panel rounded-[28px]">
           <div className="vx-instr" role="group" aria-label="Instruments, collapsed">
             <div className="vx-instr__head">
@@ -145,7 +148,7 @@ export default function InstrumentDock({
 
   if (inline) return <section aria-label="Instruments">{inner}</section>;
   return (
-    <div className="vx-bottom" data-cover="bottom" data-open="true">
+    <div className="vx-bottom" data-cover="bottom" data-open="true" inert={inert}>
       <Glass as="section" aria-label="Instruments" className="lg-panel rounded-[28px]">
         {inner}
       </Glass>

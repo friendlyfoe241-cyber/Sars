@@ -60,7 +60,9 @@ export default function MorphPanel({
       <div
         className="vx-scroll"
         style={{
-          height: Math.max(44, lerp(f.h, to.h)),
+          // final size: content lays out once, the glass clips it mid-morph
+          width: to.w,
+          height: to.h,
           opacity: content,
           transform: `translateY(${(1 - content) * 14}px)`,
         }}
