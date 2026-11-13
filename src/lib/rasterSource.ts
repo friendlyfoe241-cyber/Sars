@@ -189,9 +189,12 @@ export function sampleToGrid(src: Raster, map: SampleIndex): Raster {
 // Quicklook acquisition (public ASF browse artefacts, no authentication)
 // ---------------------------------------------------------------------------
 
-// Small LRU of in-flight / completed loads.  Decoded rasters are large, so
-// the cache is bounded; failed loads are evicted so a transient network
-// error can be retried instead of being remembered for the whole session.
+// Bounded LRU caches of in-flight / completed loads.  Decoded rasters are
+// large, so the raster caches are small; KML text is tiny, so its cache is
+// larger.  Failed loads are evicted so a transient network error can be
+// retried instead of being remembered for the whole session.  An entry that
+// is still loading with a caller waiting for it is never evicted, so a cache
+// can briefly exceed its limit while many loads are in flight.
 //
 // Loads are shared between callers, so cancelling is reference counted: a
 // caller's AbortSignal detaches that caller immediately, and the underlying
@@ -201,27 +204,52 @@ export function sampleToGrid(src: Raster, map: SampleIndex): Raster {
 // A,B -> B,C, or re-selecting the same pair) re-attaches in time and the
 // shared fetch survives.  Callers that pass no signal pin the entry (it is
 // never aborted).
-const FETCH_CACHE_LIMIT = 32;
-
 interface CacheEntry<T> {
   promise: Promise<T>;
   controller: AbortController;
   refs: number;
   settled: boolean;
 }
-const fetchCache = new Map<string, CacheEntry<unknown>>();
+
+interface FetchCache {
+  readonly limit: number;
+  readonly entries: Map<string, CacheEntry<unknown>>;
+}
+
+function makeCache(limit: number): FetchCache {
+  return { limit, entries: new Map() };
+}
+
+/** source quicklook PNGs and prepared rasters (large when decoded) */
+const rasterCache = makeCache(8);
+/** scene grids on the AOI grid (one AOI-sized raster each) */
+const gridCache = makeCache(32);
+/** georeferencing KML text */
+const textCache = makeCache(64);
+
+/** Evict least recently used entries down to the limit, sparing live loads. */
+function trim(cache: FetchCache): void {
+  for (const [key, entry] of cache.entries) {
+    if (cache.entries.size <= cache.limit) return;
+    if (!entry.settled && entry.refs > 0) continue; // someone is waiting for it
+    if (!entry.settled) entry.controller.abort(); // nobody is: stop the fetch
+    cache.entries.delete(key);
+  }
+}
 
 function cached<T>(
+  cache: FetchCache,
   key: string,
   load: (signal: AbortSignal) => Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
   // Never start (or join) work on behalf of a caller that is already gone.
   if (signal?.aborted) return Promise.reject(abortError());
-  let entry = fetchCache.get(key) as CacheEntry<T> | undefined;
+  const map = cache.entries;
+  let entry = map.get(key) as CacheEntry<T> | undefined;
   if (entry) {
-    fetchCache.delete(key);
-    fetchCache.set(key, entry); // mark as most recently used
+    map.delete(key);
+    map.set(key, entry); // mark as most recently used
   } else {
     const controller = new AbortController();
     const created: CacheEntry<T> = {
@@ -231,28 +259,23 @@ function cached<T>(
       settled: false,
     };
     entry = created;
-    fetchCache.set(key, created);
+    map.set(key, created);
     created.promise.then(
       () => {
         created.settled = true;
+        trim(cache); // loads that outlived the limit can now be evicted
       },
       () => {
         created.settled = true;
-        if (fetchCache.get(key) === created) fetchCache.delete(key);
+        if (map.get(key) === created) map.delete(key);
       },
     );
-    if (fetchCache.size > FETCH_CACHE_LIMIT) {
-      const oldest = fetchCache.keys().next().value;
-      if (oldest !== undefined) fetchCache.delete(oldest);
-    }
   }
 
   const e = entry;
-  if (!signal) {
-    e.refs++; // pinned: never aborted on behalf of another caller
-    return e.promise;
-  }
   e.refs++;
+  trim(cache);
+  if (!signal) return e.promise; // pinned: never aborted on behalf of another caller
   return new Promise<T>((resolve, reject) => {
     const detach = () => {
       e.refs--;
@@ -262,7 +285,7 @@ function cached<T>(
         queueMicrotask(() => {
           if (e.refs <= 0 && !e.settled) {
             e.controller.abort();
-            if (fetchCache.get(key) === e) fetchCache.delete(key);
+            if (map.get(key) === e) map.delete(key);
           }
         });
       }
@@ -310,6 +333,7 @@ async function fetchText(url: string, signal?: AbortSignal): Promise<string> {
  */
 function loadSceneKml(scene: NisarScene, preferPol: string, signal?: AbortSignal): Promise<string> {
   return cached(
+    textCache,
     `kml:${scene.id}`,
     async (sig) => {
       const ordered = Object.entries(scene.quicklooks.kml).sort(
@@ -332,6 +356,7 @@ function loadSceneKml(scene: NisarScene, preferPol: string, signal?: AbortSignal
 /** Decoded source quicklook PNG of one scene and channel (native grid). */
 function loadSourceRaster(scene: NisarScene, pol: string, signal?: AbortSignal): Promise<Raster> {
   return cached(
+    rasterCache,
     `ql:${scene.id}:${pol}`,
     async (sig) => {
       const pngUrl = scene.quicklooks.png[pol];
@@ -393,6 +418,7 @@ function loadSceneGridEntry(
   signal?: AbortSignal,
 ): Promise<SceneGrid> {
   return cached(
+    gridCache,
     `grid:${scene.id}|${pol}|${aoiKey(aoi)}|${outWidth}|${METHOD_VERSION}`,
     async (sig) => {
       const [src, kmlText] = await Promise.all([
@@ -602,7 +628,7 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
       const [b, a] = await Promise.all(
         [entry.before, entry.after].map((path) => {
           const url = rasterUrl(path);
-          return cached(`prepared:${url}`, (sig) => loadRaster(url, sig), signal);
+          return cached(rasterCache, `prepared:${url}`, (sig) => loadRaster(url, sig), signal);
         }),
       );
       return { before: resample(b), after: resample(a) };
