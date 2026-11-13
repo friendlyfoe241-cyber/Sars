@@ -196,7 +196,11 @@ export function sampleToGrid(src: Raster, map: SampleIndex): Raster {
 // Loads are shared between callers, so cancelling is reference counted: a
 // caller's AbortSignal detaches that caller immediately, and the underlying
 // fetch is aborted (and evicted) only when no caller is still waiting for it.
-// Callers that pass no signal pin the entry (it is never aborted).
+// The abort decision is deferred by a microtask, so a caller that aborts its
+// old load and immediately starts a new one for the same resource (pair
+// A,B -> B,C, or re-selecting the same pair) re-attaches in time and the
+// shared fetch survives.  Callers that pass no signal pin the entry (it is
+// never aborted).
 const FETCH_CACHE_LIMIT = 32;
 
 interface CacheEntry<T> {
@@ -212,6 +216,8 @@ function cached<T>(
   load: (signal: AbortSignal) => Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
+  // Never start (or join) work on behalf of a caller that is already gone.
+  if (signal?.aborted) return Promise.reject(abortError());
   let entry = fetchCache.get(key) as CacheEntry<T> | undefined;
   if (entry) {
     fetchCache.delete(key);
@@ -251,15 +257,16 @@ function cached<T>(
     const detach = () => {
       e.refs--;
       if (e.refs <= 0 && !e.settled) {
-        e.controller.abort();
-        if (fetchCache.get(key) === e) fetchCache.delete(key);
+        // Decide after the current synchronous run: a replacement caller
+        // that attaches meanwhile keeps the fetch alive.
+        queueMicrotask(() => {
+          if (e.refs <= 0 && !e.settled) {
+            e.controller.abort();
+            if (fetchCache.get(key) === e) fetchCache.delete(key);
+          }
+        });
       }
     };
-    if (signal.aborted) {
-      detach();
-      reject(abortError());
-      return;
-    }
     const onAbort = () => {
       detach();
       reject(abortError());
