@@ -1,0 +1,356 @@
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import L from "leaflet";
+import { ImageOverlay, useMap } from "react-leaflet";
+import { MoveHorizontal } from "lucide-react";
+
+/**
+ * Draggable before / after comparison on the one Leaflet map.
+ *
+ * Both overlays sit on the same bounds, each in its own map pane.  The panes
+ * are clipped with CSS `clip-path` at the divider: Before shows left of it,
+ * After right of it.  The divider is fixed on screen, so the clip is
+ * recomputed from its container x on every map move / zoom / resize (pane
+ * coordinates shift while the map pans).  Position, clip, grip, labels and
+ * ARIA values are all written straight to the DOM from refs: the divider
+ * position is not React state and dragging re-renders nothing.
+ */
+
+const BEFORE_PANE = "orbCompareBefore";
+const AFTER_PANE = "orbCompareAfter";
+// Below Leaflet's overlay pane (400) so the AOI outline and footprints stay on
+// top of the radar; above the basemap (200).
+const PANE_Z = { [BEFORE_PANE]: 398, [AFTER_PANE]: 399 } as const;
+
+const GRIP = 44;
+const GAP = 8;
+const BIG = 100000;
+
+interface Range {
+  left: number;
+  right: number;
+  /** container px; grip and labels sit below this when the top bar overlaps the map */
+  top: number;
+  labelLeft: number;
+  labelRight: number;
+}
+
+export interface CompareDividerProps {
+  bounds: L.LatLngBoundsExpression;
+  beforeUrl: string;
+  afterUrl: string;
+  /** divider position, 0..1 of the usable range; owned by the parent, not state */
+  position: MutableRefObject<number>;
+  beforeDate: string;
+  afterDate: string;
+  channel: string;
+}
+
+function overlaps(r: DOMRect, c: DOMRect): boolean {
+  return (
+    r.width > 0 &&
+    r.height > 0 &&
+    r.right > c.left &&
+    r.left < c.right &&
+    r.bottom > c.top &&
+    r.top < c.bottom
+  );
+}
+
+/** The part of the map not covered by the floating side panels. */
+function measure(container: HTMLElement): Range {
+  const cr = container.getBoundingClientRect();
+  const shell = container.closest(".orb-shell");
+  let left = 0;
+  let right = cr.width;
+  let top = 12;
+  let hasLeftPanel = false;
+  const panels = shell ? shell.querySelectorAll<HTMLElement>(".orb-left, .orb-right") : [];
+  panels.forEach((el) => {
+    if (el.hidden) return;
+    const r = el.getBoundingClientRect();
+    if (!overlaps(r, cr)) return;
+    if (r.left + r.width / 2 < cr.left + cr.width / 2) {
+      left = Math.max(left, r.right - cr.left + GAP);
+      hasLeftPanel = true;
+    } else {
+      right = Math.min(right, r.left - cr.left - GAP);
+    }
+  });
+  const topBar = shell?.querySelector<HTMLElement>(".orb-top");
+  if (topBar) {
+    const r = topBar.getBoundingClientRect();
+    if (overlaps(r, cr)) top = Math.max(top, r.bottom - cr.top + GAP);
+  }
+  if (right - left < 160) {
+    left = 0;
+    right = cr.width;
+  }
+  return {
+    left,
+    right,
+    top,
+    // below 1024 Leaflet's zoom buttons sit top-left: keep the label clear of them
+    labelLeft: hasLeftPanel ? left + GAP : 12 + 44 + GAP,
+    labelRight: cr.width - right + GAP,
+  };
+}
+
+export default function CompareDivider({
+  bounds,
+  beforeUrl,
+  afterUrl,
+  position,
+  beforeDate,
+  afterDate,
+  channel,
+}: CompareDividerProps) {
+  const map = useMap();
+  const [panesReady, setPanesReady] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const lineRef = useRef<HTMLDivElement>(null);
+  const gripRef = useRef<HTMLDivElement>(null);
+  const beforeLabelRef = useRef<HTMLDivElement>(null);
+  const afterLabelRef = useRef<HTMLDivElement>(null);
+  const apply = useRef<() => void>(() => {});
+
+  // Own panes for the two overlays (created once per map, reused).
+  useEffect(() => {
+    for (const name of [BEFORE_PANE, AFTER_PANE] as const) {
+      const pane = map.getPane(name) ?? map.createPane(name);
+      pane.style.zIndex = String(PANE_Z[name]);
+      pane.classList.add("orb-pane-compare");
+    }
+    setPanesReady(true);
+    return () => {
+      for (const name of [BEFORE_PANE, AFTER_PANE]) {
+        const pane = map.getPane(name);
+        if (pane) pane.style.clipPath = "";
+      }
+    };
+  }, [map]);
+
+  // Layout, clip, drag and keyboard.  Everything below mutates the DOM
+  // directly; nothing here sets React state.
+  useEffect(() => {
+    const container = map.getContainer();
+    const root = rootRef.current;
+    const line = lineRef.current;
+    const grip = gripRef.current;
+    const beforeLabel = beforeLabelRef.current;
+    const afterLabel = afterLabelRef.current;
+    if (!root || !line || !grip || !beforeLabel || !afterLabel) return;
+
+    let range = measure(container);
+    let width = container.clientWidth;
+
+    const render = () => {
+      const frac = position.current;
+      const x = range.left + frac * (range.right - range.left);
+      line.style.transform = `translate3d(${x}px,0,0)`;
+      grip.style.transform = `translate3d(${Math.min(Math.max(x - GRIP / 2, range.left), Math.max(range.right - GRIP, range.left))}px,0,0)`;
+      root.style.setProperty("--cmp-top", `${range.top}px`);
+      beforeLabel.style.left = `${range.labelLeft}px`;
+      afterLabel.style.right = `${range.labelRight}px`;
+
+      // Clip each pane at the divider.  Pane coordinates move with the map,
+      // so convert the container x into layer space on every update.
+      const lx = map.containerPointToLayerPoint(L.point(x, 0)).x;
+      const before = map.getPane(BEFORE_PANE);
+      const after = map.getPane(AFTER_PANE);
+      if (before) {
+        before.style.clipPath = `polygon(${-BIG}px ${-BIG}px, ${lx}px ${-BIG}px, ${lx}px ${BIG}px, ${-BIG}px ${BIG}px)`;
+      }
+      if (after) {
+        after.style.clipPath = `polygon(${lx}px ${-BIG}px, ${BIG}px ${-BIG}px, ${BIG}px ${BIG}px, ${lx}px ${BIG}px)`;
+      }
+
+      // A label is hidden when its side is (nearly) gone, so text never
+      // touches the divider.
+      const beforeRight = range.labelLeft + beforeLabel.offsetWidth;
+      const afterLeft = width - range.labelRight - afterLabel.offsetWidth;
+      beforeLabel.dataset.off = String(frac <= 0 || x < beforeRight + GAP);
+      afterLabel.dataset.off = String(frac >= 1 || x > afterLeft - GAP);
+
+      const pct = Math.round(frac * 100);
+      grip.setAttribute("aria-valuenow", String(pct));
+      grip.setAttribute("aria-valuetext", `${pct}%`);
+    };
+    apply.current = render;
+
+    const relayout = () => {
+      range = measure(container);
+      width = container.clientWidth;
+      render();
+    };
+
+    relayout();
+    map.on("move zoom zoomend moveend viewreset resize", render);
+    const observer = new ResizeObserver(relayout);
+    observer.observe(container);
+    container.closest(".orb-shell")?.querySelectorAll(".orb-left, .orb-right, .orb-top").forEach((el) => observer.observe(el));
+    // panels collapsing / the details panel hiding change the range without
+    // resizing the map
+    const mutations = new MutationObserver(relayout);
+    const shell = container.closest(".orb-shell");
+    if (shell) mutations.observe(shell, { attributes: true, subtree: true, attributeFilter: ["hidden", "data-collapsed", "data-details"] });
+    // one more pass once the pane elements and first layout exist
+    const raf = requestAnimationFrame(relayout);
+
+    // ---- pointer drag ----
+    let dragging = false;
+    let pointerId = -1;
+    let grab = 0;
+    let draggingWasOn = false;
+
+    const setFromClientX = (clientX: number) => {
+      const cr = container.getBoundingClientRect();
+      const span = range.right - range.left;
+      const frac = span > 0 ? (clientX - cr.left - grab - range.left) / span : 0.5;
+      position.current = Math.min(1, Math.max(0, frac));
+      render();
+    };
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0 && e.pointerType === "mouse") return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = true;
+      pointerId = e.pointerId;
+      grip.setPointerCapture(e.pointerId);
+      const cr = container.getBoundingClientRect();
+      const lineX = range.left + position.current * (range.right - range.left);
+      // keep the grab point under the pointer; no jump to the pointer
+      grab = Math.max(-GRIP / 2, Math.min(GRIP / 2, e.clientX - cr.left - lineX));
+      draggingWasOn = map.dragging.enabled();
+      if (draggingWasOn) map.dragging.disable();
+      grip.dataset.dragging = "true";
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!dragging || e.pointerId !== pointerId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setFromClientX(e.clientX);
+    };
+    const end = (e: PointerEvent) => {
+      if (!dragging || e.pointerId !== pointerId) return;
+      e.stopPropagation();
+      dragging = false;
+      if (grip.hasPointerCapture(e.pointerId)) grip.releasePointerCapture(e.pointerId);
+      if (draggingWasOn) map.dragging.enable();
+      draggingWasOn = false;
+      delete grip.dataset.dragging;
+    };
+
+    // ---- keyboard ----
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      const step = e.shiftKey ? 0.1 : 0.01;
+      let next: number | null = null;
+      switch (e.key) {
+        case "ArrowLeft":
+        case "ArrowDown":
+          next = position.current - step;
+          break;
+        case "ArrowRight":
+        case "ArrowUp":
+          next = position.current + step;
+          break;
+        case "Home":
+          next = 0;
+          break;
+        case "End":
+          next = 1;
+          break;
+        default:
+          return;
+      }
+      // keep Leaflet's keyboard panning and page scrolling out of it
+      e.preventDefault();
+      e.stopPropagation();
+      position.current = Math.min(1, Math.max(0, Math.round(next * 1000) / 1000));
+      render();
+    };
+
+    // Leaflet listens for these on the map container: keep them from selecting
+    // a location or starting an AOI draw.
+    const stop = (e: Event) => e.stopPropagation();
+    const stopTypes = ["mousedown", "mouseup", "mousemove", "click", "dblclick", "contextmenu", "touchstart", "wheel"];
+    for (const t of stopTypes) grip.addEventListener(t, stop);
+    grip.addEventListener("pointerdown", onDown);
+    grip.addEventListener("pointermove", onMove);
+    grip.addEventListener("pointerup", end);
+    grip.addEventListener("pointercancel", end);
+    grip.addEventListener("keydown", onKey);
+    grip.addEventListener("keyup", stop);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      map.off("move zoom zoomend moveend viewreset resize", render);
+      observer.disconnect();
+      mutations.disconnect();
+      for (const t of stopTypes) grip.removeEventListener(t, stop);
+      grip.removeEventListener("pointerdown", onDown);
+      grip.removeEventListener("pointermove", onMove);
+      grip.removeEventListener("pointerup", end);
+      grip.removeEventListener("pointercancel", end);
+      grip.removeEventListener("keydown", onKey);
+      grip.removeEventListener("keyup", stop);
+      if (draggingWasOn) map.dragging.enable();
+      apply.current = () => {};
+    };
+  }, [map, position]);
+
+  // A label's text (or the panes appearing) changes what has to be measured.
+  useEffect(() => {
+    apply.current();
+  }, [beforeDate, afterDate, channel, panesReady]);
+
+  return (
+    <>
+      {panesReady && (
+        <>
+          <ImageOverlay url={beforeUrl} bounds={bounds} opacity={0.95} pane={BEFORE_PANE} />
+          <ImageOverlay url={afterUrl} bounds={bounds} opacity={0.95} pane={AFTER_PANE} />
+        </>
+      )}
+      <div ref={rootRef} className="orb-compare" data-orb-compare>
+        <div ref={lineRef} className="orb-compare__line" aria-hidden />
+        <div
+          ref={beforeLabelRef}
+          className="orb-compare__label orb-compare__label--before"
+          aria-hidden
+        >
+          <span className="orb-eyebrow">Before</span>
+          <span className="orb-mono orb-compare__date">
+            {beforeDate}
+            <span> UTC · {channel}</span>
+          </span>
+        </div>
+        <div
+          ref={afterLabelRef}
+          className="orb-compare__label orb-compare__label--after"
+          aria-hidden
+        >
+          <span className="orb-eyebrow">After</span>
+          <span className="orb-mono orb-compare__date">
+            {afterDate}
+            <span> UTC · {channel}</span>
+          </span>
+        </div>
+        <div
+          ref={gripRef}
+          className="orb-compare__grip"
+          role="slider"
+          tabIndex={0}
+          aria-label={`Comparison divider: before ${beforeDate} UTC on the left, after ${afterDate} UTC on the right`}
+          aria-orientation="horizontal"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(position.current * 100)}
+          aria-valuetext={`${Math.round(position.current * 100)}%`}
+        >
+          <MoveHorizontal size={20} aria-hidden />
+        </div>
+      </div>
+    </>
+  );
+}

@@ -15,7 +15,10 @@ import type { Aoi } from "../lib/aoi";
 import type { NisarScene } from "../lib/discovery";
 import type { ViewerDataset } from "../lib/data";
 import type { DisplayLayer, DisplayMode, LayerUrls } from "../lib/useChangeLayers";
+import { formatDate } from "../lib/data";
 import MapLegend from "./MapLegend";
+import CompareDivider from "./CompareDivider";
+import { Spinner } from "./ui";
 
 interface MapViewProps {
   aoi: Aoi | null;
@@ -31,6 +34,10 @@ interface MapViewProps {
   saturation: number | null;
   /** rendered overlays of the loaded pair and channel, by layer */
   urls: LayerUrls;
+  /** identity of the loaded pair build (null: none); a change resets the divider */
+  pairInstance: number | null;
+  /** true while a requested layer of the loaded pair is still being rendered */
+  rendering: boolean;
   /** previous overlay of the same pair and channel while `urls` lacks the requested layer */
   fallbackUrl: string | null;
   /** grid bounds of the loaded pair (the AOI it was prepared for) */
@@ -338,6 +345,8 @@ function MapView({
   pol,
   saturation,
   urls,
+  pairInstance,
+  rendering,
   fallbackUrl,
   overlayBounds,
   viewer,
@@ -368,10 +377,24 @@ function MapView({
   const [basemapId, setBasemapId] = useState<BasemapId>("earth");
   const basemap = BASEMAPS[basemapId];
 
-  // "swipe" is reserved for the divider and draws no overlay yet; its legend
-  // follows the right-hand layer.
-  const layer: DisplayLayer = display.mode === "single" ? display.layer : display.right;
+  // Divider position (0..1 of the usable map width) is a ref owned here and
+  // written by CompareDivider's DOM code: dragging never re-renders anything.
+  // It survives channel and layer switches and resets for a new pair or area.
+  const dividerPosition = useRef(0.5);
+  const lastPair = useRef<number | null>(pairInstance);
+  if (lastPair.current !== pairInstance) {
+    lastPair.current = pairInstance;
+    dividerPosition.current = 0.5;
+  }
+
+  const compare = display.mode === "swipe";
+  const layer: DisplayLayer | "compare" = display.mode === "single" ? display.layer : "compare";
   const overlayUrl = display.mode === "single" ? (urls[display.layer] ?? fallbackUrl) : null;
+  // Compare needs both layers; while either renders show the loading state
+  // instead of half a comparison.
+  const compareReady = compare && imageBounds !== null && !!urls[display.left] && !!urls[display.right];
+  const beforeDate = viewer ? formatDate(viewer.earlier.startTime) : "";
+  const afterDate = viewer ? formatDate(viewer.later.startTime) : "";
 
   return (
     <div className="orb-map">
@@ -422,6 +445,18 @@ function MapView({
           </>
         )}
 
+        {compareReady && imageBounds && display.mode === "swipe" && (
+          <CompareDivider
+            bounds={imageBounds}
+            beforeUrl={urls[display.left]!}
+            afterUrl={urls[display.right]!}
+            position={dividerPosition}
+            beforeDate={beforeDate}
+            afterDate={afterDate}
+            channel={pol}
+          />
+        )}
+
         {overlayUrl && imageBounds && (
           <ImageOverlay
             url={overlayUrl}
@@ -448,6 +483,11 @@ function MapView({
         <ScaleBar />
         {!CUSTOM_BASEMAP_URL && <BasemapControl value={basemapId} onChange={setBasemapId} />}
       </MapContainer>
+      {compare && viewer && !compareReady && rendering && (
+        <div className="orb-panel orb-panel--glass orb-hint orb-hint--loading" role="status">
+          <Spinner /> Rendering Before and After…
+        </div>
+      )}
       {viewer && <MapLegend viewer={viewer} layer={layer} pol={pol} saturation={saturation} />}
       {drawMode && (
         <div className="orb-panel orb-panel--glass orb-hint" role="status">

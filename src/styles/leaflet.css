@@ -114,3 +114,10 @@
 .orb-basemap-switch__btn:hover { background: var(--orb-surface-hover); color: var(--orb-text); }
 .orb-basemap-switch__btn[aria-pressed="true"] { background: var(--orb-accent); color: var(--orb-on-accent); }
 .orb-basemap-switch__btn:focus-visible { outline: 2px solid var(--orb-focus); outline-offset: 2px; }
+
+@media (max-width: 767px) {
+  /* keep the switch compact on phones; the group stays labelled for AT */
+  .orb-basemap-switch { padding: 4px; }
+  .orb-basemap-switch__label { display: none; }
+  .orb-basemap-switch__buttons { padding-bottom: 0; }
+}

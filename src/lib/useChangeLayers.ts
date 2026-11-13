@@ -26,8 +26,11 @@ export type DisplayLayer = "before" | "after" | "change";
 /** How the layers are presented on the map. */
 export type DisplayMode =
   | { mode: "single"; layer: DisplayLayer }
-  /** reserved for the swipe divider; MapView renders nothing extra for it yet */
+  /** draggable divider: `left` shows left of it, `right` shows right of it */
   | { mode: "swipe"; left: DisplayLayer; right: DisplayLayer };
+
+/** What the Display layer switch offers: the divider comparison or one layer. */
+export type DisplayChoice = "compare" | DisplayLayer;
 
 /** The layers a display mode needs rendered. */
 export function layersForDisplay(display: DisplayMode): DisplayLayer[] {

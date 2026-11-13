@@ -5,7 +5,8 @@ import type { DisplayLayer } from "../lib/useChangeLayers";
 
 interface MapLegendProps {
   viewer: ViewerDataset;
-  layer: DisplayLayer;
+  /** "compare": both sides are observations, so the brightness legend applies */
+  layer: DisplayLayer | "compare";
   pol: string;
   /** change colour-scale saturation of `pol`; the ramp endpoints are this value */
   saturation: number | null;
@@ -32,7 +33,7 @@ function MapLegend({ viewer, layer, pol, saturation }: MapLegendProps) {
         {change ? "Radar brightness change" : "Radar brightness"}
       </div>
       <div className="orb-mono text-[11px] leading-4 text-orb-muted">
-        {change ? `after − before · ${pol}` : `${layer === "before" ? "Before" : "After"} · ${pol}`}
+        {change ? `after − before · ${pol}` : `${layer === "before" ? "Before" : layer === "after" ? "After" : "Before and after"} · ${pol}`}
       </div>
 
       <div className="mt-3 h-3 border border-orb-border" style={{ background: ramp }} aria-hidden />

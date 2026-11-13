@@ -1,7 +1,7 @@
 import type { ViewerDataset } from "../lib/data";
 import { formatAcquisitionTime } from "../lib/data";
 import { KeyRow, Section, Spinner } from "./ui";
-import type { DisplayLayer } from "../lib/useChangeLayers";
+import type { DisplayChoice } from "../lib/useChangeLayers";
 import type { ChannelStatus } from "../lib/rasterSource";
 
 interface ComparePanelProps {
@@ -10,14 +10,17 @@ interface ComparePanelProps {
   channelStatus: Record<string, ChannelStatus>;
   pol: string;
   onPolChange: (pol: string) => void;
-  layer: DisplayLayer;
-  onLayerChange: (layer: DisplayLayer) => void;
+  layer: DisplayChoice;
+  onLayerChange: (layer: DisplayChoice) => void;
+  /** false while no before/after pair of the selected channel is loaded */
+  canCompare: boolean;
   computing: boolean;
   showAllFootprints: boolean;
   onToggleFootprints: (show: boolean) => void;
 }
 
-const LAYERS: { id: DisplayLayer; label: string }[] = [
+const LAYERS: { id: DisplayChoice; label: string }[] = [
+  { id: "compare", label: "Compare" },
   { id: "before", label: "Before" },
   { id: "after", label: "After" },
   { id: "change", label: "Change" },
@@ -30,6 +33,7 @@ export default function ComparePanel({
   onPolChange,
   layer,
   onLayerChange,
+  canCompare,
   computing,
   showAllFootprints,
   onToggleFootprints,
@@ -66,17 +70,23 @@ export default function ComparePanel({
               type="button"
               className="orb-segment"
               aria-pressed={layer === l.id}
+              disabled={l.id === "compare" && !canCompare}
               onClick={() => onLayerChange(l.id)}
             >
               {l.label}
             </button>
           ))}
         </div>
+        {!canCompare && (
+          <p className="orb-note mt-2">Compare needs a loaded Before and After pair for this channel.</p>
+        )}
         <p className="orb-note mt-2 flex items-center gap-2" role="status">
           {computing ? (
             <>
               <Spinner /> Rendering…
             </>
+          ) : layer === "compare" ? (
+            `Before and after, greyscale · ${dataset.encoding.unit}. Drag the divider on the map, or focus it and use the arrow keys.`
           ) : layer === "change" ? (
             `Radar brightness change · pixel difference in ${dataset.changeScale.unit}`
           ) : (

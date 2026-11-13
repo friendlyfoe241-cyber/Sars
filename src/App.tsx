@@ -48,7 +48,7 @@ import {
 import {
   layersForDisplay,
   useChangeLayers,
-  type DisplayLayer,
+  type DisplayChoice,
   type DisplayMode,
 } from "./lib/useChangeLayers";
 import {
@@ -105,7 +105,12 @@ export default function App() {
 
   // ---- viewer --------------------------------------------------------
   const [pol, setPol] = useState("");
-  const [layer, setLayer] = useState<DisplayLayer>("change");
+  // The display choice belongs to the loaded pair build: a new pair (or none)
+  // starts in Compare again.
+  const [layerPick, setLayerPick] = useState<{ instance: number | null; layer: DisplayChoice }>({
+    instance: null,
+    layer: "compare",
+  });
   // The explanation is stored with the selection key it was requested for
   // and only shown while that key is the current one.
   const [aiEntry, setAiEntry] = useState<{ key: string; state: AiState } | null>(null);
@@ -165,7 +170,20 @@ export default function App() {
 
   polRef.current = pol;
 
-  const display = useMemo<DisplayMode>(() => ({ mode: "single", layer }), [layer]);
+  const pairInstance = activePair ? activePair.instance : null;
+  const layer: DisplayChoice =
+    pairInstance !== null && layerPick.instance === pairInstance ? layerPick.layer : "compare";
+  const handleLayerChange = useCallback(
+    (next: DisplayChoice) => setLayerPick({ instance: pairInstance, layer: next }),
+    [pairInstance],
+  );
+  const display = useMemo<DisplayMode>(
+    () =>
+      layer === "compare"
+        ? { mode: "swipe", left: "before", right: "after" }
+        : { mode: "single", layer },
+    [layer],
+  );
   const layerRequest = useMemo(() => layersForDisplay(display), [display]);
   const { summary, urls, fallbackUrl, rendering, saturation } = useChangeLayers(
     activePair,
@@ -702,7 +720,8 @@ export default function App() {
             pol={channel}
             onPolChange={setPol}
             layer={layer}
-            onLayerChange={setLayer}
+            onLayerChange={handleLayerChange}
+            canCompare={channel !== ""}
             computing={rendering}
             showAllFootprints={showAllFootprints}
             onToggleFootprints={setShowAllFootprints}
@@ -736,6 +755,8 @@ export default function App() {
         pol={channel}
         saturation={saturation}
         urls={urls}
+        pairInstance={pairInstance}
+        rendering={rendering}
         fallbackUrl={fallbackUrl}
         overlayBounds={activePair?.bounds ?? null}
         viewer={viewer}
