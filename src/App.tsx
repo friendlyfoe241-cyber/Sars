@@ -21,6 +21,7 @@ import Starfield from "./components/Starfield";
 import { LiquidGlassFilter } from "./components/glass/Glass";
 import { DisclosureSection } from "./components/ui";
 import { useGlassProximity } from "./hooks/useGlassProximity";
+import { usePresence } from "./hooks/usePresence";
 import { LAYOUT_EVENT } from "./lib/freeArea";
 import { STEPS, type StepId } from "./lib/steps";
 import { usePairStats } from "./lib/usePairStats";
@@ -112,6 +113,7 @@ export default function App() {
   // underneath from the first render.
   const [heroOpen, setHeroOpen] = useState(true);
   const [heroIntro, setHeroIntro] = useState(true);
+  const hero = usePresence(heroOpen);
   const [wsKey, setWsKey] = useState(0);
   const [step, setStep] = useState<StepId>("locate");
   const stepRef = useRef<StepId>("locate");
@@ -749,10 +751,9 @@ export default function App() {
 
   const enterFromHero = useCallback(
     (id: StepId) => {
-      const m = window.innerWidth < 720 ? 12 : 32;
       setHeroOpen(false);
       setWsKey((k) => k + 1);
-      goStep(id, { l: m, t: m, w: window.innerWidth - 2 * m, h: window.innerHeight - 2 * m, r: 36 });
+      goStep(id, null);
     },
     [goStep],
   );
@@ -1159,6 +1160,7 @@ export default function App() {
   return (
     <div
       className="vx-shell relative h-full overflow-hidden bg-black text-app-text"
+      data-hero={heroOpen}
       style={{ ["--vx-dock-left" as string]: `${dockLeft}px` }}
     >
       <LiquidGlassFilter animate={heroOpen} />
@@ -1255,7 +1257,7 @@ export default function App() {
         />
       )}
 
-      {heroOpen && <Hero intro={heroIntro} onEnter={enterFromHero} />}
+      {hero.mounted && <Hero intro={heroIntro} leaving={hero.leaving} onEnter={enterFromHero} />}
     </div>
   );
 }

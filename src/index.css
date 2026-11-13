@@ -186,29 +186,145 @@
     transform: scale(1.04);
   }
 }
-@keyframes hero-pop {
-  from {
-    opacity: 0;
-    transform: translateY(30px) scale(0.6);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
 @keyframes vx-spin {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Edge motion: one system for every surface                           */
+/* A surface enters from, and leaves towards, the screen edge it is    */
+/* docked to: a transform-only slide plus a fade, one duration, one    */
+/* easing, no overshoot.  --vx-travel-x / -y shorten the trip for a    */
+/* surface that should not cross the whole screen (default: its own   */
+/* size plus the 16px gutter, i.e. it starts just off the edge).       */
+/* ------------------------------------------------------------------ */
+:root {
+  --vx-dur: 280ms; /* keep in step with MOTION_MS (hooks/usePresence.ts) */
+  --vx-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes vx-in-left {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--vx-travel-x, calc(-100% - 16px)), 0, 0);
+  }
+}
+@keyframes vx-in-right {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--vx-travel-x, calc(100% + 16px)), 0, 0);
+  }
+}
+@keyframes vx-in-top {
+  from {
+    opacity: 0;
+    transform: translate3d(0, var(--vx-travel-y, calc(-100% - 16px)), 0);
+  }
+}
+@keyframes vx-in-bottom {
+  from {
+    opacity: 0;
+    transform: translate3d(0, var(--vx-travel-y, calc(100% + 16px)), 0);
+  }
+}
+@keyframes vx-out-left {
+  to {
+    opacity: 0;
+    transform: translate3d(var(--vx-travel-x, calc(-100% - 16px)), 0, 0);
+  }
+}
+@keyframes vx-out-top {
+  to {
+    opacity: 0;
+    transform: translate3d(0, var(--vx-travel-y, calc(-100% - 16px)), 0);
+  }
+}
+@keyframes vx-out-bottom {
+  to {
+    opacity: 0;
+    transform: translate3d(0, var(--vx-travel-y, calc(100% + 16px)), 0);
+  }
+}
+@keyframes vx-out-fade {
+  to {
+    opacity: 0;
+  }
+}
+.vx-in-left,
+.vx-in-right,
+.vx-in-top,
+.vx-in-bottom {
+  animation-duration: var(--vx-dur);
+  animation-timing-function: var(--vx-ease);
+  animation-fill-mode: backwards;
+}
+.vx-in-left {
+  animation-name: vx-in-left;
+}
+.vx-in-right {
+  animation-name: vx-in-right;
+}
+.vx-in-top {
+  animation-name: vx-in-top;
+}
+.vx-in-bottom {
+  animation-name: vx-in-bottom;
+}
+.vx-out-left,
+.vx-out-top,
+.vx-out-bottom {
+  animation-duration: var(--vx-dur);
+  animation-timing-function: var(--vx-ease);
+  animation-fill-mode: forwards;
+  pointer-events: none;
+}
+.vx-out-left {
+  animation-name: vx-out-left;
+}
+.vx-out-top {
+  animation-name: vx-out-top;
+}
+.vx-out-bottom {
+  animation-name: vx-out-bottom;
+}
+/* The workspace is mounted under the hero from the first render: hold every
+   entrance while the hero is up so the surfaces slide in when it leaves. */
+.vx-shell[data-hero="true"] :is(.vx-in-left, .vx-in-right, .vx-in-top, .vx-in-bottom, .vx-swap):not(.vx-hero *) {
+  animation: none;
+}
+
+/* Hero: the title comes from the top edge, the command dock rises from the
+   bottom edge, the globe rises behind them.  Leaving, the hero fades while
+   title and dock slide back out to their edges. */
+.vx-hero[data-leaving] {
+  animation: vx-out-fade var(--vx-dur) var(--vx-ease) forwards;
+  pointer-events: none;
+}
+.vx-hero[data-leaving] .vx-hero__title {
+  animation: vx-out-top var(--vx-dur) var(--vx-ease) forwards;
+}
+.vx-hero[data-leaving] .vx-hero__dock {
+  animation: vx-out-bottom var(--vx-dur) var(--vx-ease) forwards;
+}
+.vx-hero__globe {
+  --vx-travel-y: 72px;
+  animation-delay: 40ms;
+}
+.vx-hero__dock {
+  animation-delay: 120ms;
+}
+/* the hover indicator in the command dock slides between commands */
+.vx-hero__hover {
+  transition:
+    transform var(--vx-dur) var(--vx-ease),
+    opacity var(--vx-dur) var(--vx-ease);
 }
 .step-in {
   animation: step-in 0.7s cubic-bezier(0.34, 1.3, 0.64, 1) backwards;
 }
 .hdr-in {
   animation: hdr-in 1s cubic-bezier(0.34, 1.35, 0.64, 1) backwards;
-}
-.hero-pop {
-  animation: hero-pop 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
