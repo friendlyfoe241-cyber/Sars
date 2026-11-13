@@ -31,6 +31,7 @@ import { findCompatiblePairs, type ScenePair } from "./lib/pairing";
 import {
   buildPairDataset,
   pairQuicklookStatus,
+  type PairDataset,
   RasterUnavailableError,
 } from "./lib/rasterSource";
 import {
@@ -100,6 +101,8 @@ export default function App() {
   const pairAbort = useRef<AbortController | null>(null);
   const aiRequest = useRef<string | null>(null);
   const aoiRef = useRef<Aoi | null>(null);
+  // Channel to load first for the next pair (read at load time only).
+  const polRef = useRef("");
 
   // ---- selection identity and everything derived from it -------------
   // Suggested pairs; ones known to lack rasters sort last and are labelled.
@@ -134,13 +137,15 @@ export default function App() {
   // The only place a loaded result is matched against the selection.
   const activePair = selectCurrentPair(pairState, currentPairKey);
   const viewer: ViewerDataset | null = activePair?.viewer ?? null;
-  // The channel is always one the active pair actually holds.
-  const channel = !activePair
-    ? ""
-    : activePair.viewer.polarisations.includes(pol)
-      ? pol
-      : (activePair.viewer.polarisations[0] ?? "");
+  // The channel is always one the active pair has loaded (other channels of
+  // the pair may still be loading or unavailable).
+  const readyChannels = activePair
+    ? activePair.viewer.polarisations.filter((p) => activePair.channelStatus[p] === "ready")
+    : [];
+  const channel = readyChannels.includes(pol) ? pol : (readyChannels[0] ?? "");
   const currentSelectionKey = pairBase ? selectionKey({ ...pairBase, channel }) : null;
+
+  polRef.current = pol;
 
   const layerRequest = useMemo(() => [layer], [layer]);
   const { summary, urls, rendering } = useChangeLayers(activePair, channel, layerRequest);
@@ -397,6 +402,10 @@ export default function App() {
       pairAbort.current = controller;
       // The previous pair's results are gone before the first await.
       setPairState({ status: "loading", key });
+      // Channels beyond the first arrive after the pair is ready.  An update
+      // can land before the awaited result is applied, so the newest
+      // snapshot of this build is kept here as well.
+      let latest = null as PairDataset | null;
       try {
         const dataset = await buildPairDataset({
           before,
@@ -404,11 +413,21 @@ export default function App() {
           aoi,
           prepared: example,
           areaLabel: locationLabel || formatAoi(aoi),
+          channel: polRef.current,
           signal: controller.signal,
+          onChannelUpdate: (next) => {
+            if (seq !== pairSeq.current) return;
+            latest = next;
+            setPairState((cur) =>
+              cur.status === "ready" && cur.key === key && cur.dataset.instance === next.instance
+                ? { ...cur, dataset: next }
+                : cur,
+            );
+          },
         });
         if (seq !== pairSeq.current) return;
-        setPairState({ status: "ready", key, dataset });
-        setPol(dataset.viewer.polarisations[0] ?? "");
+        setPairState({ status: "ready", key, dataset: latest ?? dataset });
+        setPol(Object.keys(dataset.perPol)[0] ?? "");
       } catch (err) {
         if (seq !== pairSeq.current || isAbortError(err)) return;
         const metadataOnly = err instanceof RasterUnavailableError;
@@ -611,6 +630,7 @@ export default function App() {
               )}
               <ControlPanel
                 dataset={viewState.dataset.viewer}
+                channelStatus={viewState.dataset.channelStatus}
                 pol={channel}
                 onPolChange={setPol}
                 layer={layer}

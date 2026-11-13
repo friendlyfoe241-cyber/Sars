@@ -63,13 +63,14 @@ export function useChangeLayers(
     } catch {
       return null;
     }
-  }, [pair, rasters]);
+  }, [pair?.viewer, rasters]);
 
-  // One cache per loaded pair.
+  // One cache per pair build.  Snapshots of the same build (channels
+  // arriving) share it; a new build gets a fresh one.
   const cache = useMemo<OverlayCache>(
     () => ({ urls: new Map(), pending: new Set(), failed: new Set(), disposed: false }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pair],
+    [pair?.instance],
   );
   // Bumped when a render finishes, so the derivation below re-runs.
   const [, setVersion] = useState(0);

@@ -2,9 +2,12 @@ import type { ViewerDataset } from "../lib/data";
 import { formatAcquisitionTime } from "../lib/data";
 import { Section } from "./ui";
 import type { DisplayLayer } from "../lib/useChangeLayers";
+import type { ChannelStatus } from "../lib/rasterSource";
 
 interface ControlPanelProps {
   dataset: ViewerDataset;
+  /** per-channel load state; only ready channels can be selected */
+  channelStatus: Record<string, ChannelStatus>;
   pol: string;
   onPolChange: (pol: string) => void;
   layer: DisplayLayer;
@@ -20,6 +23,7 @@ const LAYERS: { id: DisplayLayer; label: string }[] = [
 
 export default function ControlPanel({
   dataset,
+  channelStatus,
   pol,
   onPolChange,
   layer,
@@ -60,11 +64,15 @@ export default function ControlPanel({
           className="block w-full rounded-[3px] border border-app-border bg-white px-2 py-1.5 text-[13px] text-app-text focus:border-app-accent focus:outline-none"
           aria-label="Polarisation channel"
         >
-          {dataset.polarisations.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
+          {dataset.polarisations.map((p) => {
+            const status = channelStatus[p] ?? "unavailable";
+            return (
+              <option key={p} value={p} disabled={status !== "ready"}>
+                {p}
+                {status === "loading" ? " (loading…)" : status === "unavailable" ? " (unavailable)" : ""}
+              </option>
+            );
+          })}
         </select>
       </Section>
 

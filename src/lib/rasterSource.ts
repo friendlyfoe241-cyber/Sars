@@ -23,7 +23,7 @@ import type {
 import { layerLabel, rasterUrl } from "./data";
 import type { NisarScene } from "./discovery";
 import { loadRaster, type Raster } from "./raster";
-import { METHOD_VERSION, pairKey } from "./selection";
+import { METHOD_VERSION, aoiKey, pairKey } from "./selection";
 
 export const QUICKLOOK_ENCODING: RasterEncoding = {
   type: "quicklook_dn",
@@ -303,56 +303,124 @@ async function fetchText(url: string, signal?: AbortSignal): Promise<string> {
   return res.text();
 }
 
-function fetchKml(
-  scene: NisarScene,
-  pol: string,
-  url: string,
-  signal?: AbortSignal,
-): Promise<string> {
-  return cached(`kml:${scene.id}:${pol}`, (sig) => fetchText(url, sig), signal);
-}
-
-export interface QuicklookSource {
-  raster: Raster;
-  quad: Quad;
-}
-
-export function fetchSceneQuicklook(
-  scene: NisarScene,
-  pol: string,
-  signal?: AbortSignal,
-): Promise<QuicklookSource> {
+/**
+ * Georeferencing KML of a scene, fetched once per scene (every channel's KML
+ * describes the same geometry).  `preferPol`'s file is tried first, then the
+ * scene's other channels.
+ */
+function loadSceneKml(scene: NisarScene, preferPol: string, signal?: AbortSignal): Promise<string> {
   return cached(
-    `ql:${scene.id}:${pol}`,
+    `kml:${scene.id}`,
     async (sig) => {
-      const pngUrl = scene.quicklooks.png[pol];
-      const kmlUrl = scene.quicklooks.kml[pol];
-      if (!pngUrl) throw new Error(`No quicklook for ${pol}.`);
-      const [raster, kmlText] = await Promise.all([
-        loadRaster(pngUrl, sig),
-        // any channel's KML has the same geometry; fall back to the others
-        fetchKml(scene, pol, kmlUrl, sig).catch((err) => {
+      const ordered = Object.entries(scene.quicklooks.kml).sort(
+        ([a], [b]) => Number(b === preferPol) - Number(a === preferPol),
+      );
+      for (const [, url] of ordered) {
+        try {
+          return await fetchText(url, sig);
+        } catch (err) {
           if (isAbortError(err) || sig.aborted) throw err;
-          return firstKml(scene, pol, sig);
-        }),
-      ]);
-      return { raster, quad: parseKmlQuad(kmlText) };
+          /* try the next channel's KML */
+        }
+      }
+      throw new Error(`No georeferencing KML for ${scene.id}.`);
     },
     signal,
   );
 }
 
-async function firstKml(scene: NisarScene, skipPol: string, signal?: AbortSignal): Promise<string> {
-  for (const [pol, url] of Object.entries(scene.quicklooks.kml)) {
-    if (pol === skipPol) continue;
-    try {
-      return await fetchKml(scene, pol, url, signal);
-    } catch (err) {
-      if (isAbortError(err) || signal?.aborted) throw err;
-      /* try next */
+/** Decoded source quicklook PNG of one scene and channel (native grid). */
+function loadSourceRaster(scene: NisarScene, pol: string, signal?: AbortSignal): Promise<Raster> {
+  return cached(
+    `ql:${scene.id}:${pol}`,
+    async (sig) => {
+      const pngUrl = scene.quicklooks.png[pol];
+      if (!pngUrl) throw new Error(`No quicklook for ${pol}.`);
+      return loadRaster(pngUrl, sig);
+    },
+    signal,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Scene grids: one scene + channel resampled onto an AOI grid
+// ---------------------------------------------------------------------------
+
+const SAMPLE_INDEX_LIMIT = 8;
+const sampleIndexCache = new Map<string, SampleIndex>();
+
+function quadKey(quad: Quad): string {
+  return CORNERS.map((k) => `${quad[k][0]},${quad[k][1]}`).join(";");
+}
+
+/**
+ * Sample index for a quad, source size and AOI grid.  Every channel of a
+ * scene (same KML, same source size) shares one index.
+ */
+export function sampleIndexFor(
+  quad: Quad,
+  aoi: Aoi,
+  outWidth: number,
+  srcWidth: number,
+  srcHeight: number,
+): SampleIndex {
+  const key = `${quadKey(quad)}|${srcWidth}x${srcHeight}|${aoiKey(aoi)}|${outWidth}`;
+  let map = sampleIndexCache.get(key);
+  if (map) {
+    sampleIndexCache.delete(key);
+  } else {
+    map = buildSampleIndex(quad, aoi, outWidth, srcWidth, srcHeight);
+    if (sampleIndexCache.size >= SAMPLE_INDEX_LIMIT) {
+      const oldest = sampleIndexCache.keys().next().value;
+      if (oldest !== undefined) sampleIndexCache.delete(oldest);
     }
   }
-  throw new Error(`No georeferencing KML for ${scene.id}.`);
+  sampleIndexCache.set(key, map);
+  return map;
+}
+
+interface SceneGrid {
+  raster: Raster;
+  /** georeferencing the grid was resampled with */
+  quad: Quad;
+}
+
+function loadSceneGridEntry(
+  scene: NisarScene,
+  pol: string,
+  aoi: Aoi,
+  outWidth: number,
+  signal?: AbortSignal,
+): Promise<SceneGrid> {
+  return cached(
+    `grid:${scene.id}|${pol}|${aoiKey(aoi)}|${outWidth}|${METHOD_VERSION}`,
+    async (sig) => {
+      const [src, kmlText] = await Promise.all([
+        loadSourceRaster(scene, pol, sig),
+        loadSceneKml(scene, pol, sig),
+      ]);
+      const quad = parseKmlQuad(kmlText);
+      const index = sampleIndexFor(quad, aoi, outWidth, src.width, src.height);
+      return { raster: sampleToGrid(src, index), quad };
+    },
+    signal,
+  );
+}
+
+/**
+ * One scene's quicklook for one channel, resampled onto the AOI grid
+ * (outWidth x outputHeightFor(aoi, outWidth); 0 = nodata).  Independent of
+ * any pair: results are cached per scene, channel, AOI, width and method
+ * version, and are shared with every caller that asks for the same grid.
+ */
+export function loadSceneGrid(
+  scene: NisarScene,
+  pol: string,
+  aoi: Aoi,
+  outWidth: number,
+  signal?: AbortSignal,
+): Promise<Raster> {
+  return loadSceneGridEntry(scene, pol, aoi, outWidth, signal).then((g) => g.raster);
 }
 
 /**
@@ -389,6 +457,14 @@ export function pairQuicklookStatus(
 // Pair assembly
 // ---------------------------------------------------------------------------
 
+export type ChannelStatus = "ready" | "loading" | "unavailable";
+
+/** One channel's rasters on the AOI grid. */
+export interface ChannelRasters {
+  before: Raster;
+  after: Raster;
+}
+
 export interface PairDataset {
   viewer: ViewerDataset;
   /** grid bounds (equal to the AOI this dataset was built for) */
@@ -398,12 +474,20 @@ export interface PairDataset {
   afterId: string;
   /**
    * pairKey() of the selection this dataset was built for: AOI bounds,
-   * before/after ids and METHOD_VERSION, but not the channel (the dataset
-   * holds every shared channel in `perPol`).  It is displayed only while it
-   * equals the key of the current selection.
+   * before/after ids and METHOD_VERSION, but not the channel.  It is
+   * displayed only while it equals the key of the current selection.
    */
   key: string;
-  perPol: Record<string, { before: Raster; after: Raster }>;
+  /**
+   * Identity of one build.  Constant across the snapshots of a build (which
+   * differ only in `perPol` / `channelStatus` as channels arrive), different
+   * for every new build, even of the same selection.
+   */
+  instance: number;
+  /** rasters of the channels that are ready; a channel absent here has none */
+  perPol: Record<string, ChannelRasters>;
+  /** state of every candidate channel (`viewer.polarisations`) */
+  channelStatus: Record<string, ChannelStatus>;
 }
 
 const QUICKLOOK_LIMITATIONS = (gridPixelM: number) => [
@@ -446,15 +530,28 @@ export interface BuildPairOptions {
   prepared?: PreparedDataset | null;
   areaLabel: string;
   outputWidth?: number;
+  /** channel to load first; the first available channel is used otherwise */
+  channel?: string;
+  /**
+   * Called with a new snapshot of the dataset (same `key` and `instance`)
+   * whenever a channel that was still loading becomes ready or unavailable.
+   * Never called after `signal` aborts.
+   */
+  onChannelUpdate?: (dataset: PairDataset) => void;
   /** abort to drop the load; rejects with an AbortError */
   signal?: AbortSignal;
 }
 
+let nextInstance = 0;
+
 /**
- * Build the viewer dataset for a selected observation pair over an AOI.
- * Prefers locally prepared (possibly calibrated) rasters; otherwise fetches
- * the public quicklooks.  Throws RasterUnavailableError when no raster can be
- * prepared, so callers can show metadata and a processing status instead.
+ * Assemble the viewer dataset for a selected observation pair over an AOI.
+ * Prefers locally prepared (possibly calibrated) rasters; otherwise the
+ * public quicklooks, via loadSceneGrid.  Resolves as soon as one channel (the
+ * requested one, else the first that loads) is ready; the other shared
+ * channels keep loading and are delivered through `onChannelUpdate`.  Throws
+ * RasterUnavailableError when no raster can be prepared, so callers can show
+ * metadata and a processing status instead.
  */
 export async function buildPairDataset(opts: BuildPairOptions): Promise<PairDataset> {
   const { before, after, aoi, areaLabel, signal } = opts;
@@ -465,8 +562,8 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
     { sceneId: after.id, status: "metadata-only" },
   ];
 
-  const pols = commonPolarisations(before, after);
-  if (pols.length === 0) {
+  const shared = commonPolarisations(before, after);
+  if (shared.length === 0) {
     throw new RasterUnavailableError(
       "The two scenes share no polarisation channel, so they cannot be compared.",
       metadataOnly(),
@@ -479,72 +576,55 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
     prepared.beforeId === before.id &&
     prepared.afterId === after.id;
 
-  // Source rasters per shared channel, in channel order.  All channels (and
-  // both sides of each) are fetched and decoded concurrently.
-  let sources: { pol: string; before: Raster; after: Raster }[];
-  let quad: Quad;
+  let channels: string[]; // candidate channels, in scene order
+  let loadChannel: (pol: string) => Promise<ChannelRasters>;
   let encoding: RasterEncoding = QUICKLOOK_ENCODING;
   let limitations: string[];
   let source: string;
 
   if (preparedMatches) {
     const { manifest } = prepared;
-    quad = quadFromBounds(manifest.studyArea.bounds);
+    const quad = quadFromBounds(manifest.studyArea.bounds);
     encoding = manifest.encoding;
-    sources = await Promise.all(
-      pols
-        .filter((pol) => manifest.rasters[pol])
-        .map(async (pol) => {
-          const entry = manifest.rasters[pol];
-          const [b, a] = await Promise.all(
-            [entry.before, entry.after].map((path) => {
-              const url = rasterUrl(path);
-              return cached(`prepared:${url}`, (sig) => loadRaster(url, sig), signal);
-            }),
-          );
-          return { pol, before: b, after: a };
-        }),
-    );
-    if (sources.length === 0) {
+    channels = shared.filter((pol) => manifest.rasters[pol]);
+    if (channels.length === 0) {
       throw new RasterUnavailableError(
         "The prepared dataset has no rasters for the shared polarisation channels.",
         metadataOnly(),
       );
     }
-    throwIfAborted(signal);
+    const resample = (src: Raster): Raster =>
+      sampleToGrid(src, sampleIndexFor(quad, aoi, outWidth, src.width, src.height));
+    loadChannel = async (pol) => {
+      const entry = manifest.rasters[pol];
+      const [b, a] = await Promise.all(
+        [entry.before, entry.after].map((path) => {
+          const url = rasterUrl(path);
+          return cached(`prepared:${url}`, (sig) => loadRaster(url, sig), signal);
+        }),
+      );
+      return { before: resample(b), after: resample(a) };
+    };
     limitations = manifest.dataset.limitations;
     source = manifest.dataset.source;
   } else {
-    const loaded = await Promise.all(
-      pols.map(async (pol) => {
-        try {
-          const [b, a] = await Promise.all([
-            fetchSceneQuicklook(before, pol, signal),
-            fetchSceneQuicklook(after, pol, signal),
-          ]);
-          if (b.raster.width !== a.raster.width || b.raster.height !== a.raster.height) {
-            throw new Error("The two quicklooks are not on the same grid.");
-          }
-          if (!quadsAgree(b.quad, a.quad)) {
-            throw new Error("The two quicklooks have different georeferencing.");
-          }
-          return { pol, before: b.raster, after: a.raster, quad: b.quad };
-        } catch (err) {
-          if (isAbortError(err) || signal?.aborted) throw err;
-          return null;
-        }
-      }),
-    );
-    throwIfAborted(signal);
-    const usable = loaded.filter((entry) => entry !== null);
-    if (usable.length === 0) {
+    channels = shared.filter((pol) => before.quicklooks.png[pol] && after.quicklooks.png[pol]);
+    if (channels.length === 0) {
       throw new RasterUnavailableError(
         "Quicklook rasters for this pair are not available. Scene metadata is shown instead of a comparison.",
-        loaded.flatMap(() => metadataOnly()),
+        metadataOnly(),
       );
     }
-    sources = usable;
-    quad = usable[0].quad;
+    loadChannel = async (pol) => {
+      const [b, a] = await Promise.all([
+        loadSceneGridEntry(before, pol, aoi, outWidth, signal),
+        loadSceneGridEntry(after, pol, aoi, outWidth, signal),
+      ]);
+      if (!quadsAgree(b.quad, a.quad)) {
+        throw new Error("The two quicklooks have different georeferencing.");
+      }
+      return { before: b.raster, after: a.raster };
+    };
     source =
       "NASA/ISRO NISAR L2 GCOV (geocoded observables), archived by NASA ASF DAAC — ASF browse quicklooks";
     const gridPixelM =
@@ -553,29 +633,52 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
     limitations = QUICKLOOK_LIMITATIONS(Math.round(gridPixelM));
   }
 
-  const calibrated = encoding.type === "db_linear";
+  const perPol: PairDataset["perPol"] = {};
+  const channelStatus: Record<string, ChannelStatus> = {};
+  for (const pol of channels) channelStatus[pol] = "loading";
+  let lastError: unknown;
 
-  // One sample index per distinct source grid (normally exactly one).
-  const indexes = new Map<string, SampleIndex>();
-  const resample = (src: Raster): Raster => {
-    const key = `${src.width}x${src.height}`;
-    let map = indexes.get(key);
-    if (!map) {
-      map = buildSampleIndex(quad, aoi, outWidth, src.width, src.height);
-      indexes.set(key, map);
+  /** Load one channel into the shared state; throws only on abort. */
+  const attempt = async (pol: string): Promise<boolean> => {
+    try {
+      const loaded = await loadChannel(pol);
+      throwIfAborted(signal);
+      perPol[pol] = loaded;
+      channelStatus[pol] = "ready";
+      return true;
+    } catch (err) {
+      if (isAbortError(err) || signal?.aborted) throw err;
+      channelStatus[pol] = "unavailable";
+      lastError = err;
+      return false;
     }
-    return sampleToGrid(src, map);
   };
 
-  const perPol: PairDataset["perPol"] = {};
-  const layers: Record<string, string> = {};
-  for (const src of sources) {
-    perPol[src.pol] = { before: resample(src.before), after: resample(src.after) };
-    layers[src.pol] = layerLabel(src.pol);
+  // The requested channel first; if it cannot be loaded, the next ones in
+  // order until one works.  Channels not needed for that stay untouched.
+  const preferred = opts.channel && channels.includes(opts.channel) ? opts.channel : undefined;
+  const order = preferred ? [preferred, ...channels.filter((p) => p !== preferred)] : channels;
+  let first: string | null = null;
+  for (const pol of order) {
+    if (await attempt(pol)) {
+      first = pol;
+      break;
+    }
+  }
+  throwIfAborted(signal);
+  if (first === null) {
+    if (preparedMatches) throw lastError;
+    throw new RasterUnavailableError(
+      "Quicklook rasters for this pair are not available. Scene metadata is shown instead of a comparison.",
+      metadataOnly(),
+    );
   }
 
-  const first = perPol[sources[0].pol];
-  const saturation = computeSaturation(first.before.red, first.after.red, encoding);
+  const calibrated = encoding.type === "db_linear";
+  const layers: Record<string, string> = {};
+  for (const pol of channels) layers[pol] = layerLabel(pol);
+  const firstRasters = perPol[first];
+  const saturation = computeSaturation(firstRasters.before.red, firstRasters.after.red, encoding);
 
   const viewer: ViewerDataset = {
     status: calibrated ? "nisar_calibrated" : "nisar_quicklook",
@@ -585,7 +688,7 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
     productLine: `${before.band === after.band ? before.band : `${before.band}/${after.band}`} · ${before.productType} · NISAR`,
     band: before.band,
     productType: before.productType,
-    polarisations: sources.map((src) => src.pol),
+    polarisations: channels,
     layers,
     encoding,
     changeScale: { saturation, unit: encoding.unit },
@@ -595,13 +698,31 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
     limitations,
   };
 
-  throwIfAborted(signal);
-  return {
+  const instance = ++nextInstance;
+  const key = pairKey({ aoi, beforeId: before.id, afterId: after.id, methodVersion: METHOD_VERSION });
+  const snapshot = (): PairDataset => ({
     viewer,
     bounds: aoi,
     beforeId: before.id,
     afterId: after.id,
-    key: pairKey({ aoi, beforeId: before.id, afterId: after.id, methodVersion: METHOD_VERSION }),
-    perPol,
-  };
+    key,
+    instance,
+    perPol: { ...perPol },
+    channelStatus: { ...channelStatus },
+  });
+
+  const result = snapshot();
+  // Remaining channels load in the background into the same dataset.
+  for (const pol of order) {
+    if (channelStatus[pol] !== "loading") continue;
+    attempt(pol).then(
+      () => {
+        if (!signal?.aborted) opts.onChannelUpdate?.(snapshot());
+      },
+      () => {
+        /* aborted: the pair was replaced or cleared */
+      },
+    );
+  }
+  return result;
 }
