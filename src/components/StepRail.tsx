@@ -1,12 +1,11 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState } from "react";
 import { STEPS, type StepId } from "../lib/steps";
-import { SNAP, useSprings } from "../hooks/useSprings";
 import StepIcon from "./StepIcon";
 
 /**
- * Segmented step control with a liquid indicator that stretches as it moves.
- * Reports the clicked tab's rectangle so the sidebar can grow out of it.
- * Shows labels on wide screens and icons only on narrow ones.
+ * Segmented step control.  The active indicator slides sideways to the
+ * current step (a transform transition).  Shows labels on wide screens and
+ * icons only on narrow ones.
  */
 export default function StepRail({
   active,
@@ -15,7 +14,7 @@ export default function StepRail({
 }: {
   active: StepId;
   available: Record<StepId, boolean>;
-  onPick: (step: StepId, from: DOMRect) => void;
+  onPick: (step: StepId) => void;
 }) {
   const [wide, setWide] = useState(() => window.innerWidth >= 1100);
   useEffect(() => {
@@ -33,30 +32,26 @@ export default function StepRail({
       window.removeEventListener("resize", on);
     };
   }, []);
-  const BW = wide ? 104 : 48;
-
-  const { spring } = useSprings();
+  const BW = wide ? 100 : 48;
   const idx = Math.max(0, STEPS.findIndex((s) => s.id === active));
-  const s = spring(`ind${BW}`, idx * BW, SNAP, idx * BW);
-  const stretch = Math.min(40, Math.abs(s.v) * 0.045);
 
   return (
     <nav
       aria-label="Workflow steps"
-      className="relative flex rounded-full p-1"
+      className="relative flex shrink-0 rounded-full p-1"
       style={{ background: "rgba(255,255,255,.05)", boxShadow: "inset 0 1px 3px rgba(0,0,0,.7)" }}
     >
       <span
         aria-hidden="true"
-        className="absolute rounded-full"
+        className="vx-rail-indicator absolute rounded-full"
         style={{
           top: 4,
           bottom: 4,
-          left: 4 + s.x - stretch / 2,
-          width: BW + stretch,
+          left: 4,
+          width: BW,
+          transform: `translateX(${idx * BW}px)`,
           background: "linear-gradient(135deg, #4F46E5, #6D4CE0)",
-          boxShadow:
-            "inset 1px 1.5px 0 rgba(255,255,255,.45), inset 0 -6px 12px rgba(0,0,0,.25), 0 6px 22px rgba(99,102,241,.5)",
+          boxShadow: "inset 1px 1.5px 0 rgba(255,255,255,.45), 0 4px 14px rgba(99,102,241,.4)",
         }}
       />
       {STEPS.map((step) => {
@@ -67,12 +62,12 @@ export default function StepRail({
             key={step.id}
             type="button"
             data-step={step.id}
-            onClick={(e: MouseEvent<HTMLButtonElement>) => onPick(step.id, e.currentTarget.getBoundingClientRect())}
+            onClick={() => onPick(step.id)}
             aria-current={on ? "step" : undefined}
             aria-label={ok ? (wide ? undefined : step.label) : `${step.label}, locked: ${step.locked}`}
             title={ok ? step.label : `${step.label}: ${step.locked}`}
-            className="lg-btn relative flex items-center justify-center gap-2 rounded-full border-0 bg-transparent text-[14px]"
-            style={{ width: BW, minHeight: 44, color: on ? "#fff" : ok ? "#C9D0DA" : "#7E8794" }}
+            className="lg-btn relative flex items-center justify-center gap-2 rounded-full border-0 bg-transparent text-[13px] font-medium"
+            style={{ width: BW, minHeight: 44, color: on ? "#fff" : ok ? "#C9D0DA" : "#8A93A0" }}
           >
             <StepIcon id={step.id} size={16} />
             {wide && step.label}

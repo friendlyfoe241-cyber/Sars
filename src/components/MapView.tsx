@@ -32,6 +32,8 @@ interface MapViewProps {
   drawMode: boolean;
   onAoiDrawn: (aoi: Aoi) => void;
   onPickLocation: (lat: number, lon: number) => void;
+  /** the user started dragging the map (tucks a peeking panel) */
+  onUserInteract?: () => void;
   display: DisplayMode;
   pol: string;
   /** change colour-scale saturation of `pol`; the legend describes this value */
@@ -322,6 +324,12 @@ function ClickHandler({
   return null;
 }
 
+/** Reports a map drag the user started (a click is reported as a pick). */
+function InteractionWatcher({ onInteract }: { onInteract?: () => void }) {
+  useMapEvent("dragstart", () => onInteract?.());
+  return null;
+}
+
 /** Drag-to-draw rectangle AOI; temporarily disables map panning. */
 function AoiDrawer({
   enabled,
@@ -475,6 +483,7 @@ function MapView({
   drawMode,
   onAoiDrawn,
   onPickLocation,
+  onUserInteract,
   display,
   pol,
   saturation,
@@ -615,6 +624,7 @@ function MapView({
         {aoiBounds && <Rectangle bounds={aoiBounds} pathOptions={AOI_STYLE} />}
 
         <ClickHandler enabled={!drawMode} onPick={onPickLocation} drawGuard={drawGuard} />
+        <InteractionWatcher onInteract={onUserInteract} />
         <AoiDrawer enabled={drawMode} onAoiDrawn={onAoiDrawn} drawGuard={drawGuard} />
         <FitController aoi={aoi} fitKey={fitKey} layoutKey={layoutKey} />
         <ScaleBar />

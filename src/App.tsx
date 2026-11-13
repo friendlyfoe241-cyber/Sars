@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ChevronDown, ChevronRight, ChevronUp, PanelLeftClose, Pin, PinOff } from "lucide-react";
 import { isAbortError } from "./lib/abort";
 import CataloguePanel from "./components/CataloguePanel";
 import ComparePanel from "./components/ComparePanel";
@@ -15,10 +16,9 @@ import AppHeader, { type ChipTone } from "./components/AppHeader";
 import Hero from "./components/Hero";
 import LockedStep from "./components/LockedStep";
 import MapLegend from "./components/MapLegend";
-import MorphPanel, { type MorphRect } from "./components/MorphPanel";
+import Glass, { LiquidGlassFilter } from "./components/glass/Glass";
 import StepIcon from "./components/StepIcon";
 import Starfield from "./components/Starfield";
-import { LiquidGlassFilter } from "./components/glass/Glass";
 import { DisclosureSection } from "./components/ui";
 import { useGlassProximity } from "./hooks/useGlassProximity";
 import { usePresence } from "./hooks/usePresence";
@@ -73,6 +73,21 @@ import {
 } from "./lib/viewState";
 
 const IDLE_AI: AiState = { status: "idle" };
+const PIN_KEY = "vx.panelPinned";
+function readPinned(): boolean {
+  try {
+    return window.localStorage.getItem(PIN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function writePinned(on: boolean) {
+  try {
+    window.localStorage.setItem(PIN_KEY, on ? "1" : "0");
+  } catch {
+    /* storage unavailable: the choice lasts for this visit only */
+  }
+}
 const METADATA_ONLY_MESSAGE =
   "Quicklook rasters for this pair are not available. Scene metadata is shown instead of a comparison.";
 
@@ -114,20 +129,36 @@ export default function App() {
   const [heroOpen, setHeroOpen] = useState(true);
   const [heroIntro, setHeroIntro] = useState(true);
   const hero = usePresence(heroOpen);
-  const [wsKey, setWsKey] = useState(0);
   const [step, setStep] = useState<StepId>("locate");
   const stepRef = useRef<StepId>("locate");
   // the step auto-advance last put the user on (null once they navigate away)
   const autoRef = useRef<StepId | null>(null);
-  const [morph, setMorph] = useState<{ key: number; from: MorphRect | null }>({ key: 0, from: null });
   const [vw, setVw] = useState({ w: window.innerWidth, h: window.innerHeight });
   const [headerBottom, setHeaderBottom] = useState(88);
-  const [sheetCollapsed, setSheetCollapsed] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const phone = vw.w < 768;
+  // Step panel.  Tucked into a slim edge tab by default; it comes back as a
+  // "peek" overlay (edge tab, step rail, hero, auto-advance, a state that
+  // needs attention) that tucks again on map interaction or Escape, or stays
+  // put while pinned.  Only a pinned panel takes room from the map.  Phones
+  // have no pin: the bottom sheet is collapsed to its header bar or peeking.
+  const [pinned, setPinned] = useState(readPinned);
+  const [peek, setPeek] = useState(false);
+  const isPinned = pinned && !phone;
+  const panelOpen = isPinned || peek;
+  const panel = usePresence(panelOpen);
+  // direction of the content slide when the step changes inside an open panel
+  const [swapDir, setSwapDir] = useState<"next" | "prev" | null>(null);
+  // a request to focus the step heading (user-opened) or the opener (tucked)
+  const [focusReq, setFocusReq] = useState<{ n: number; to: "heading" | "opener" }>({ n: 0, to: "heading" });
+  const openerRef = useRef<HTMLElement | null>(null);
+  const panelOpenRef = useRef(panelOpen);
+  panelOpenRef.current = panelOpen;
+  const peekOnlyRef = useRef(false);
+  peekOnlyRef.current = panelOpen && !isPinned;
   // Instrument dock (observations / results / graph): a glass bar along the
-  // bottom of the free map area, collapsible.  Until the user chooses, it is
-  // open once a comparison is loaded and a slim bar before that.
+  // bottom of the free map area, collapsed to its tab bar until the user
+  // opens it (loading a pair does not open it).
   const [instrChoice, setInstrChoice] = useState<boolean | null>(null);
   const [instrTab, setInstrTab] = useState<InstrumentTab>("observations");
   const [graphView, setGraphView] = useState<GraphView>("date");
@@ -260,7 +291,7 @@ export default function App() {
     ],
   );
   const pairLoaded = viewState.kind === "ready" || viewState.kind === "no-valid-pixels";
-  const instrOpen = instrChoice ?? pairLoaded;
+  const instrOpen = instrChoice ?? false;
   const ai: AiState =
     aiEntry && aiEntry.key === currentSelectionKey ? aiEntry.state : IDLE_AI;
 
@@ -387,8 +418,14 @@ export default function App() {
     }
   }, [applyLocation]);
 
+  // A map click while a peek is open only tucks the peek: it is consumed and
+  // never also moves the area of interest.
   const handlePickLocation = useCallback(
     (lat: number, lon: number) => {
+      if (peekOnlyRef.current) {
+        setPeek(false);
+        return;
+      }
       setDrawMode(false);
       applyLocation(lat, lon, `Pinned location · ${formatLatLon(lat, lon)}`);
     },
@@ -699,30 +736,89 @@ export default function App() {
     return () => ro.disconnect();
   }, []);
 
-  /** Switch step; the glass sidebar grows out of `from` into place. */
-  const goStep = useCallback((id: StepId, from: MorphRect | null) => {
+  /**
+   * Show step `id` in the panel.  `user`: the user asked for it (edge tab, step
+   * rail, hero, a notice's link): focus moves to the step heading.  Otherwise
+   * (auto-advance, a state that needs attention) the panel opens as a peek
+   * and focus stays where it is.
+   */
+  const showStep = useCallback((id: StepId, user: boolean) => {
+    const from = stepRef.current;
+    const ids = STEPS.map((x) => x.id);
+    // slide the content sideways only when the step changes inside an open panel
+    setSwapDir(panelOpenRef.current && from !== id ? (ids.indexOf(id) > ids.indexOf(from) ? "next" : "prev") : null);
     stepRef.current = id;
     setStep(id);
-    setSheetCollapsed(false);
-    setMorph((m) => ({ key: m.key + 1, from }));
+    setPeek(true);
+    if (user) {
+      const ae = document.activeElement;
+      if (ae instanceof HTMLElement && !ae.closest("#step-panel")) openerRef.current = ae;
+      setFocusReq((f) => ({ n: f.n + 1, to: "heading" }));
+    }
   }, []);
-  const rectOf = (r: DOMRect): MorphRect => ({ l: r.left, t: r.top, w: r.width, h: r.height, r: r.height / 2 });
-  const tabRect = (id: StepId): MorphRect | null => {
-    const el = document.querySelector(`[data-step="${id}"]`);
-    return el ? rectOf(el.getBoundingClientRect()) : null;
-  };
-  const autoStep = useCallback(
-    (id: StepId) => {
-      // already there: replaying the morph would remount the sidebar
-      if (stepRef.current === id) return;
-      goStep(id, tabRect(id));
+  const autoStep = useCallback((id: StepId) => showStep(id, false), [showStep]);
+  const goTo = useCallback((id: StepId) => showStep(id, true), [showStep]);
+  const handleOpenPanel = useCallback(() => showStep(stepRef.current, true), [showStep]);
+
+  /** Tuck the panel away (unpinning it); focus returns to the opener or edge tab. */
+  const tuckPanel = useCallback(
+    (restoreFocus: boolean) => {
+      // the phone sheet has no pin: collapsing it keeps the desktop choice
+      if (!phone) {
+        setPinned(false);
+        writePinned(false);
+      }
+      setPeek(false);
+      if (restoreFocus) setFocusReq((f) => ({ n: f.n + 1, to: "opener" }));
     },
-    [goStep],
+    [phone],
   );
-  const goTo = useCallback((id: StepId) => autoStep(id), [autoStep]);
+  const handleTogglePin = useCallback(() => {
+    const next = !pinned;
+    setPinned(next);
+    writePinned(next);
+    // unpinning leaves it open as a peek; pinning refits the map beside it
+    setPeek(true);
+    if (next) setFitKey((k) => k + 1);
+  }, [pinned]);
+  // Map drag (or the click consumed in handlePickLocation) tucks a peek.
+  const handleMapInteract = useCallback(() => {
+    if (peekOnlyRef.current) setPeek(false);
+  }, []);
+
+  useEffect(() => {
+    if (focusReq.n === 0) return;
+    const id = requestAnimationFrame(() => {
+      if (focusReq.to === "heading") {
+        document.getElementById("step-heading")?.focus({ preventScroll: true });
+        return;
+      }
+      const opener = openerRef.current;
+      openerRef.current = null;
+      const target =
+        opener && opener.isConnected && !opener.closest("[inert]")
+          ? opener
+          : document.getElementById(phone ? "step-heading-toggle" : "step-edge-tab");
+      target?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusReq]);
+
+  // Escape tucks a peek (never a pinned panel).
+  useEffect(() => {
+    if (heroOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || !peekOnlyRef.current) return;
+      tuckPanel(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [heroOpen, tuckPanel]);
 
   // Walk the user forward as the workflow progresses: a search starts ->
-  // Scenes; compatible pairs found -> Pairs; a pair is ready -> Change.
+  // Scenes; compatible pairs found -> Pairs; a pair is ready -> Change.  Each
+  // opens as a peek so the result is seen; map interaction tucks it again.
   const prevSearching = useRef(false);
   useEffect(() => {
     if (searching && !prevSearching.current) {
@@ -748,27 +844,21 @@ export default function App() {
     prevLoaded.current = pairLoaded;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pairLoaded]);
+  // A state that needs attention (failed search, nothing found, pair failed
+  // or metadata only) is shown in the panel: never leave it tucked away.
+  const attention =
+    viewState.kind === "error" || viewState.kind === "no-observations" || viewState.kind === "metadata-only";
+  useEffect(() => {
+    if (attention) setPeek(true);
+  }, [attention, viewState.kind]);
 
   const enterFromHero = useCallback(
     (id: StepId) => {
       setHeroOpen(false);
-      setWsKey((k) => k + 1);
-      goStep(id, null);
+      showStep(id, true);
     },
-    [goStep],
+    [showStep],
   );
-  // After entering from the hero, move focus to the sidebar's step heading.
-  const wasHero = useRef(true);
-  useEffect(() => {
-    if (wasHero.current && !heroOpen) {
-      const id = requestAnimationFrame(() =>
-        document.getElementById("step-heading")?.focus({ preventScroll: true }),
-      );
-      wasHero.current = false;
-      return () => cancelAnimationFrame(id);
-    }
-    wasHero.current = heroOpen;
-  }, [heroOpen]);
   const handleGlobe = useCallback(() => {
     setHeroIntro(false);
     setHeroOpen(true);
@@ -858,30 +948,26 @@ export default function App() {
     statusTone = "error";
   }
 
-  // ---- sidebar geometry --------------------------------------------------
+  // ---- panel geometry ------------------------------------------------------
+  // Desktop: a column under the header along the left edge.  Phone: a bottom
+  // sheet whose collapsed state shows only its 64px header bar.
+  const SHEET_BAR = 64;
   const sidebarW = phone ? vw.w - 24 : Math.min(400, Math.max(320, Math.round(vw.w * 0.3)));
-  const sheetTop = phone
-    ? sheetCollapsed
-      ? vw.h - 16 - 64
-      : Math.max(headerBottom + 12, vw.h * 0.45)
-    : headerBottom + 12;
-  const panelTo: MorphRect = {
+  const panelTop = phone ? Math.max(headerBottom + 12, vw.h * 0.45) : headerBottom + 12;
+  const panelRect = {
     l: phone ? 12 : 16,
-    t: sheetTop,
+    t: panelTop,
     w: sidebarW,
-    h: phone && sheetCollapsed ? 64 : Math.max(200, vw.h - sheetTop - 16),
-    r: 28,
+    h: Math.max(phone ? SHEET_BAR : 200, vw.h - panelTop - 16),
   };
-  const dockLeft = panelTo.l + panelTo.w + 16;
+  const dockLeft = isPinned ? panelRect.l + panelRect.w + 16 : 16;
   // Tells the map (fit padding, divider range, legend and controls) that a
-  // surface moved or changed size without the map seeing a resize.
+  // surface moved or changed size without the map seeing a resize.  A peek
+  // overlays the map and is not part of it.
   const layoutKey = [
-    Math.round(panelTo.l),
-    Math.round(panelTo.t),
-    Math.round(panelTo.w),
-    Math.round(panelTo.h),
+    isPinned ? `${Math.round(panelRect.t)}:${Math.round(panelRect.w)}:${Math.round(panelRect.h)}` : "-",
     Math.round(headerBottom),
-    phone ? "p" : "d",
+    phone ? `p${Math.round(vw.h)}` : "d",
     showDock ? (rowVisible ? "o" : "c") : "-",
   ].join("|");
   useEffect(() => {
@@ -1130,30 +1216,56 @@ export default function App() {
       break;
   }
 
-  const showSheetChrome = phone;
+  const sheetCollapsed = phone && !panelOpen;
   const stepHeader = (
-    <div className="flex items-center gap-3 px-5 pt-5 pb-1" style={sheetCollapsed && phone ? { paddingTop: 10 } : undefined}>
+    <div className={`flex items-center gap-3 pr-3 pl-5 ${sheetCollapsed ? "min-h-[64px] py-2" : "pt-4 pb-1"}`}>
       <span className="text-app-flare">
-        <StepIcon id={step} size={22} />
+        <StepIcon id={step} size={20} />
       </span>
-      <div className="min-w-0 flex-1">
-        <h2 id="step-heading" tabIndex={-1} className="m-0 text-[22px] leading-tight outline-none focus:outline-none">{stepDef.label}</h2>
-        {!(sheetCollapsed && phone) && <p className="m-0 text-[12px] text-app-muted">{stepBlurb[step]}</p>}
+      <div key={step} className="vx-swap min-w-0 flex-1" data-dir={swapDir ?? undefined}>
+        <h2 id="step-heading" tabIndex={-1} className="vx-step-heading">{stepDef.label}</h2>
+        {!sheetCollapsed && <p className="m-0 text-[12px] leading-[18px] text-app-muted">{stepBlurb[step]}</p>}
       </div>
-      {showSheetChrome && (
+      {phone ? (
         <button
           type="button"
+          id="step-heading-toggle"
           className="vx-button vx-button--ghost vx-button--compact shrink-0 !px-3"
           aria-expanded={!sheetCollapsed}
-          onClick={() => setSheetCollapsed((c) => !c)}
-          aria-label={sheetCollapsed ? "Show panel" : "Hide panel to see the map"}
+          aria-controls={sheetCollapsed ? undefined : "step-panel-body"}
+          onClick={() => (sheetCollapsed ? handleOpenPanel() : tuckPanel(true))}
+          aria-label={sheetCollapsed ? `Show ${stepDef.label} panel` : "Hide panel to see the map"}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: sheetCollapsed ? "rotate(180deg)" : undefined }}>
-            <path d="M6 9l6 6 6-6" />
-          </svg>
-          <span className="sr-only md:not-sr-only">{sheetCollapsed ? "Show" : "Map"}</span>
+          {sheetCollapsed ? <ChevronUp size={18} aria-hidden /> : <ChevronDown size={18} aria-hidden />}
         </button>
+      ) : (
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            className="vx-icon-button"
+            aria-pressed={isPinned}
+            aria-label="Keep panel open"
+            title={isPinned ? "Unpin: the panel tucks away when you use the map" : "Pin: keep the panel open beside the map"}
+            onClick={handleTogglePin}
+          >
+            {isPinned ? <PinOff size={18} aria-hidden /> : <Pin size={18} aria-hidden />}
+          </button>
+          <button
+            type="button"
+            className="vx-icon-button"
+            aria-label="Tuck panel away"
+            title="Tuck the panel into the left edge"
+            onClick={() => tuckPanel(true)}
+          >
+            <PanelLeftClose size={18} aria-hidden />
+          </button>
+        </div>
       )}
+    </div>
+  );
+  const panelBody = (
+    <div id="step-panel-body" key={step} className="vx-swap" data-dir={swapDir ?? undefined}>
+      {stepBody}
     </div>
   );
 
@@ -1178,6 +1290,7 @@ export default function App() {
           drawMode={drawMode}
           onAoiDrawn={handleAoiDrawn}
           onPickLocation={handlePickLocation}
+          onUserInteract={handleMapInteract}
           display={display}
           pol={channel}
           saturation={saturation}
@@ -1196,49 +1309,97 @@ export default function App() {
         />
       </main>
 
-      {/* floating glass header */}
+      {/* floating glass header: a centred pill that hugs its contents */}
       <div
         ref={headerRef}
-        data-cover="top"
-        className="absolute top-4 right-4 left-4 z-[1001]"
+        className="pointer-events-none absolute top-4 right-4 left-4 z-[1001] flex justify-center"
         inert={heroOpen}
       >
-        <AppHeader
-          active={step}
-          available={stepAvailable}
-          onPick={(id, r) => goStep(id, rectOf(r))}
-          statusLabel={statusLabel}
-          statusTone={statusTone}
-          statusNote={statusNote}
-          onGlobe={handleGlobe}
-          animKey={wsKey}
-        />
+        <h1 className="sr-only">NISAR Surface Change</h1>
+        <div data-cover="top" className="pointer-events-auto max-w-full min-w-0">
+          <AppHeader
+            active={step}
+            available={stepAvailable}
+            onPick={goTo}
+            statusLabel={statusLabel}
+            statusTone={statusTone}
+            statusNote={statusNote}
+            onGlobe={handleGlobe}
+          />
+        </div>
       </div>
 
-      {/* where the sidebar ends up: what the map measures (the panel itself
-          is mid-flight while it morphs) */}
-      <div
-        aria-hidden="true"
-        data-cover={phone ? "bottom" : "left"}
-        style={{
-          position: "absolute",
-          left: panelTo.l,
-          top: panelTo.t,
-          width: panelTo.w,
-          height: panelTo.h,
-          visibility: "hidden",
-          pointerEvents: "none",
-        }}
-      />
+      {/* What the map measures for the panel: only a pinned panel (desktop)
+          or the phone sheet's header bar takes room from the map. */}
+      {(isPinned || phone) && (
+        <div
+          aria-hidden="true"
+          data-cover={phone ? "bottom" : "left"}
+          style={{
+            position: "absolute",
+            left: panelRect.l,
+            top: phone ? vw.h - 16 - SHEET_BAR : panelRect.t,
+            width: panelRect.w,
+            height: phone ? SHEET_BAR : panelRect.h,
+            visibility: "hidden",
+            pointerEvents: "none",
+          }}
+        />
+      )}
 
-      {/* glass sidebar: grows out of whichever tab (or hero panel) opened it */}
+      {/* step panel: slides in from the left edge (phones: a bottom sheet) */}
       <div inert={heroOpen}>
-        <MorphPanel from={morph.from} to={panelTo} morphKey={morph.key} label={`${stepDef.label} panel`}>
-          <div key={`${step}-${morph.key}`} className="step-in">
-            {stepHeader}
-            {!(sheetCollapsed && phone) && stepBody}
+        {phone ? (
+          <div
+            className="vx-sheet absolute z-[1000]"
+            style={{
+              left: panelRect.l,
+              top: panelRect.t,
+              width: panelRect.w,
+              height: panelRect.h,
+              transform: sheetCollapsed ? `translate3d(0, ${panelRect.h - SHEET_BAR}px, 0)` : undefined,
+            }}
+          >
+            <Glass as="aside" id="step-panel" aria-label={`${stepDef.label} panel`} className="lg-panel vx-side vx-in-bottom rounded-[28px]">
+              <div className="flex h-full flex-col">
+                {stepHeader}
+                {!sheetCollapsed && <div className="vx-scroll min-h-0 flex-1">{panelBody}</div>}
+              </div>
+            </Glass>
           </div>
-        </MorphPanel>
+        ) : panel.mounted ? (
+          <Glass
+            as="aside"
+            id="step-panel"
+            aria-label={`${stepDef.label} panel`}
+            data-pinned={isPinned || undefined}
+            className={`lg-panel vx-side absolute z-[1000] rounded-[28px] ${panel.leaving ? "vx-out-left" : "vx-in-left"}`}
+            style={{ left: panelRect.l, top: panelRect.t, width: panelRect.w, height: panelRect.h }}
+            inert={panel.leaving}
+          >
+            <div className="flex h-full flex-col">
+              {stepHeader}
+              <div className="vx-scroll min-h-0 flex-1">{panelBody}</div>
+            </div>
+          </Glass>
+        ) : null}
+        {!phone && !panelOpen && (
+          <Glass
+            as="button"
+            type="button"
+            id="step-edge-tab"
+            className="lg-panel vx-edge-tab vx-in-left"
+            aria-label={`Show ${stepDef.label} panel`}
+            aria-expanded={false}
+            title={`Show ${stepDef.label}`}
+            onClick={handleOpenPanel}
+          >
+            <span className="flex flex-col items-center gap-2">
+              <StepIcon id={step} size={20} />
+              <ChevronRight size={16} aria-hidden />
+            </span>
+          </Glass>
+        )}
       </div>
 
       {showDock && (
