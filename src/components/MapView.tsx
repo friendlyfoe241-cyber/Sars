@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Layers } from "lucide-react";
 import L from "leaflet";
 import {
   MapContainer,
@@ -126,6 +127,32 @@ function BasemapControl({
       control.remove();
     };
   }, [map, container]);
+  // Phones: the free map strip is short, so the switch collapses to a single
+  // 44px icon button that flips between the two basemaps.
+  const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 767px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const on = () => setCompact(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  if (compact) {
+    const other = BASEMAP_IDS.find((id) => id !== value) ?? value;
+    return createPortal(
+      <Glass className="lg-panel vx-basemap-switch vx-basemap-switch--compact">
+        <button
+          type="button"
+          className="vx-basemap-switch__icon"
+          aria-label={`Basemap: ${BASEMAPS[value].label}. Switch to ${BASEMAPS[other].label}`}
+          title={`Basemap: ${BASEMAPS[value].label} (tap for ${BASEMAPS[other].label})`}
+          onClick={() => onChange(other)}
+        >
+          <Layers size={20} aria-hidden="true" />
+        </button>
+      </Glass>,
+      container,
+    );
+  }
   return createPortal(
     <Glass className="lg-panel vx-basemap-switch">
       <div role="group" aria-label="Basemap">

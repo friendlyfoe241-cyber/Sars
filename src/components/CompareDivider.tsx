@@ -52,6 +52,11 @@ export interface CompareDividerProps {
   channel: string;
 }
 
+/** "25 Oct 2026" -> "25 Oct" for the compact phone labels. */
+function shortDate(d: string): string {
+  return d.replace(/\s+\d{4}$/, "");
+}
+
 function valueText(pct: number): string {
   return `${pct}% — before on the left, after on the right`;
 }
@@ -69,10 +74,8 @@ function measure(container: HTMLElement): Range {
   const lineTop = ins.top ?? 0;
   const lineBottom = cr.height - (ins.bottom ?? 0);
   const anyPanel = ins.left !== null || ins.right !== null || ins.top !== null || ins.bottom !== null;
-  // From 768 the zoom and basemap controls stack at the top-right of the free
-  // area: the After label stays clear of them.  On phones they move to the
-  // bottom-right of the (short) free strip, away from the labels.
-  const desktop = window.matchMedia("(min-width: 768px)").matches;
+  // The zoom / basemap controls sit at the top-right of the free area (on
+  // phones just the 44px basemap button): the After label stays left of them.
   let controlsW = 0;
   container.querySelectorAll<HTMLElement>(".leaflet-top.leaflet-right .leaflet-control").forEach((el) => {
     controlsW = Math.max(controlsW, el.offsetWidth);
@@ -85,7 +88,7 @@ function measure(container: HTMLElement): Range {
     lineBottom,
     gripY: anyPanel ? (lineTop + lineBottom) / 2 - GRIP / 2 : cr.height * 0.72,
     labelLeft: ins.left !== null ? left + GAP : 12,
-    labelRight: cr.width - right + GAP + (desktop ? controlsW + GAP : 0),
+    labelRight: cr.width - right + GAP + controlsW + GAP,
   };
 }
 
@@ -106,6 +109,8 @@ export default function CompareDivider({
   const beforeLabelRef = useRef<HTMLDivElement>(null);
   const afterLabelRef = useRef<HTMLDivElement>(null);
   const apply = useRef<() => void>(() => {});
+  const boundsRef = useRef(bounds);
+  boundsRef.current = bounds;
 
   // Own panes for the two overlays (created once per map, reused).
   useEffect(() => {
@@ -141,6 +146,8 @@ export default function CompareDivider({
     let containerLeft = container.getBoundingClientRect().left;
     let beforeW = 0;
     let afterW = 0;
+    let labelH = 0;
+    const phoneMq = window.matchMedia("(max-width: 767px)");
 
     const render = () => {
       const frac = position.current;
@@ -167,6 +174,15 @@ export default function CompareDivider({
       beforeLabel.dataset.off = String(frac <= 0 || x < beforeRight + GAP);
       afterLabel.dataset.off = String(frac >= 1 || x > afterLeft - GAP);
 
+      // Phones: sit the (compact) labels just above the raster's top edge when
+      // the free strip has room, else at the top of the strip.
+      let top = range.top;
+      if (phoneMq.matches && labelH > 0) {
+        const nw = map.latLngToContainerPoint(L.latLngBounds(boundsRef.current as L.LatLngBoundsLiteral).getNorthWest());
+        top = Math.max(range.top, Math.min(nw.y - labelH - 4, range.lineBottom - labelH));
+      }
+      root.style.setProperty("--cmp-top", `${top}px`);
+
       const pct = Math.round(frac * 100);
       grip.setAttribute("aria-valuenow", String(pct));
       grip.setAttribute("aria-valuetext", valueText(pct));
@@ -179,7 +195,7 @@ export default function CompareDivider({
       // labels are positioned by render(); their width does not depend on it
       beforeW = beforeLabel.offsetWidth;
       afterW = afterLabel.offsetWidth;
-      root.style.setProperty("--cmp-top", `${range.top}px`);
+      labelH = beforeLabel.offsetHeight;
       root.style.setProperty("--cmp-line-top", `${range.lineTop}px`);
       root.style.setProperty("--cmp-line-h", `${Math.max(0, range.lineBottom - range.lineTop)}px`);
       root.style.setProperty("--cmp-grip-y", `${range.gripY}px`);
@@ -357,8 +373,10 @@ export default function CompareDivider({
         >
           <span className="vx-eyebrow">Before</span>
           <span className="vx-mono vx-compare__date">
-            {beforeDate}
-            <span> UTC · {channel}</span>
+            <span className="vx-compare__sep"> · </span>
+            <span className="vx-compare__short">{shortDate(beforeDate)}</span>
+            <span className="vx-compare__full">{beforeDate}</span>
+            <span className="vx-compare__utc"> UTC · {channel}</span>
           </span>
         </Glass>
         <Glass
@@ -368,8 +386,10 @@ export default function CompareDivider({
         >
           <span className="vx-eyebrow">After</span>
           <span className="vx-mono vx-compare__date">
-            {afterDate}
-            <span> UTC · {channel}</span>
+            <span className="vx-compare__sep"> · </span>
+            <span className="vx-compare__short">{shortDate(afterDate)}</span>
+            <span className="vx-compare__full">{afterDate}</span>
+            <span className="vx-compare__utc"> UTC · {channel}</span>
           </span>
         </Glass>
         <Glass

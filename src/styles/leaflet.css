@@ -103,14 +103,14 @@
 
 @media (max-width: 767px) {
   /* phones: the free map strip above the sheet is short.  Pinch zooms, so the
-     +/- buttons are dropped and the basemap switch sits at the bottom of the
-     strip, clear of the Before / After labels along the top. */
+     +/- buttons are dropped and the basemap switch is a single icon button at
+     the top-right corner of the strip (the After label sits to its left). */
   .leaflet-control-zoom {
     display: none;
   }
   .leaflet-top.leaflet-right {
-    top: auto;
-    bottom: calc(var(--vx-free-bottom) + 18px);
+    top: calc(var(--vx-free-top) + 4px);
+    right: calc(var(--vx-free-right) - 4px);
   }
 }
 
@@ -165,6 +165,23 @@
   background: linear-gradient(135deg, #4f46e5, #6d4ce0);
   color: var(--vx-on-accent);
 }
+.vx-basemap-switch--compact .lg-c {
+  padding: 0;
+}
+.vx-basemap-switch__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--vx-text);
+  cursor: pointer;
+}
+.vx-basemap-switch__icon:focus-visible,
 .vx-basemap-switch__btn:focus-visible {
   outline: 2px solid var(--vx-focus);
   outline-offset: 1px;
@@ -244,10 +261,39 @@
 .vx-pane-compare {
   transition: none !important;
 }
+.vx-compare__sep,
+.vx-compare__short {
+  display: none;
+}
 @media (max-width: 767px) {
-  /* narrow labels (date on one line, UTC and channel on the next) leave room
-     for both of them either side of a centred divider */
-  .vx-compare__date span {
-    display: block;
+  /* compact one-line labels ("Before · 25 Oct"): little of the short free
+     strip or the raster is covered, and both fit either side of a centred
+     divider */
+  .vx-compare__label {
+    max-width: 48%;
+    border-radius: 12px;
+  }
+  .vx-compare__label > .lg-c {
+    display: flex !important;
+    align-items: baseline;
+    gap: 0;
+    padding: 3px 8px;
+    white-space: nowrap;
+  }
+  .vx-compare__label .vx-eyebrow {
+    font-size: 10px;
+    line-height: 16px;
+  }
+  .vx-compare__date {
+    font-size: 11px;
+    line-height: 16px;
+  }
+  .vx-compare__sep,
+  .vx-compare__short {
+    display: inline;
+  }
+  .vx-compare__full,
+  .vx-compare__utc {
+    display: none;
   }
 }
