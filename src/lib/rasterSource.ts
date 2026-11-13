@@ -12,8 +12,8 @@
 // lazy HDF5 reads); the browser never downloads large products.
 
 import type { Aoi } from "./aoi";
+import { computeSaturation } from "./changeDetection";
 import type {
-  Manifest,
   PreparedDataset,
   RasterAvailability,
   RasterEncoding,
@@ -64,12 +64,14 @@ export function parseKmlQuad(kmlText: string): Quad {
   return { sw, se, ne, nw };
 }
 
+const CORNERS = ["sw", "se", "ne", "nw"] as const;
+
 export function quadsAgree(a: Quad, b: Quad, toleranceDeg = 1e-4): boolean {
-  const pairs = [a.sw, a.se, a.ne, a.nw].map((p, i) => {
-    const q = [b.sw, b.se, b.ne, b.nw][i];
-    return Math.abs(p[0] - q[0]) <= toleranceDeg && Math.abs(p[1] - q[1]) <= toleranceDeg;
-  });
-  return pairs.every(Boolean);
+  return CORNERS.every(
+    (k) =>
+      Math.abs(a[k][0] - b[k][0]) <= toleranceDeg &&
+      Math.abs(a[k][1] - b[k][1]) <= toleranceDeg,
+  );
 }
 
 export function quadFromBounds(bounds: { west: number; south: number; east: number; north: number }): Quad {
@@ -85,11 +87,15 @@ export function quadFromBounds(bounds: { west: number; south: number; east: numb
 // Resampling onto the AOI grid (inverse bilinear mapping)
 // ---------------------------------------------------------------------------
 
-interface SampleMap {
-  u: Float32Array;
-  v: Float32Array;
+/**
+ * Nearest-neighbour lookup table from AOI grid pixels to source pixels:
+ * index[i] is the offset into the source raster, or -1 outside it.  Built
+ * once per pair and shared by every raster on the same source grid.
+ */
+export interface SampleIndex {
   width: number;
   height: number;
+  index: Int32Array;
 }
 
 export function outputHeightFor(aoi: Aoi, outWidth: number): number {
@@ -99,87 +105,119 @@ export function outputHeightFor(aoi: Aoi, outWidth: number): number {
   return Math.max(1, Math.round((outWidth * latSpanKm) / lonSpanKm));
 }
 
-/** Mapping from AOI grid pixels to source-image (u, v) fractions. */
-export function buildSampleMap(quad: Quad, aoi: Aoi, outWidth: number): SampleMap {
+const NEWTON_MAX_ITERATIONS = 6;
+/** stop refining once the (u, v) correction is far below one source pixel */
+const NEWTON_TOLERANCE = 1e-10;
+
+export function buildSampleIndex(
+  quad: Quad,
+  aoi: Aoi,
+  outWidth: number,
+  srcWidth: number,
+  srcHeight: number,
+): SampleIndex {
   const width = outWidth;
   const height = outputHeightFor(aoi, outWidth);
-  const u = new Float32Array(width * height);
-  const v = new Float32Array(width * height);
-  const [sw, se, ne, nw] = [quad.sw, quad.se, quad.ne, quad.nw];
+  const index = new Int32Array(width * height);
+  const { sw, se, ne, nw } = quad;
 
-  // Affine initialisation (the quads are near-parallelograms).
-  const a00 = se[0] - sw[0];
-  const a01 = nw[0] - sw[0];
-  const a10 = se[1] - sw[1];
-  const a11 = nw[1] - sw[1];
-  const det = a00 * a11 - a01 * a10;
+  // Bilinear map P(u, v) = sw + u*E + v*F + u*v*G.  G is zero for a
+  // parallelogram, where the affine start below is already exact.
+  const ex = se[0] - sw[0];
+  const ey = se[1] - sw[1];
+  const fx = nw[0] - sw[0];
+  const fy = nw[1] - sw[1];
+  const gx = ne[0] - nw[0] - ex;
+  const gy = ne[1] - nw[1] - ey;
+  const det = ex * fy - fx * ey;
 
+  const lonStep = (aoi.east - aoi.west) / (width - 1 || 1);
+  const latStep = (aoi.north - aoi.south) / (height - 1 || 1);
+  const maxX = srcWidth - 1;
+  const maxY = srcHeight - 1;
+
+  let i = 0;
   for (let r = 0; r < height; r++) {
-    const lat = aoi.north - ((aoi.north - aoi.south) * r) / (height - 1 || 1);
-    for (let c = 0; c < width; c++) {
-      const lon = aoi.west + ((aoi.east - aoi.west) * c) / (width - 1 || 1);
-      const dx = lon - sw[0];
-      const dy = lat - sw[1];
-      let uu = (dx * a11 - dy * a01) / det;
-      let vv = (a00 * dy - a10 * dx) / det;
+    const dy = aoi.north - latStep * r - sw[1];
+    for (let c = 0; c < width; c++, i++) {
+      const dx = aoi.west + lonStep * c - sw[0];
+      // Affine initialisation (the quads are near-parallelograms).
+      let u = (dx * fy - dy * fx) / det;
+      let v = (ex * dy - ey * dx) / det;
       // Newton refinement against the bilinear mapping.
-      for (let it = 0; it < 6; it++) {
-        const mu = 1 - uu;
-        const mv = 1 - vv;
-        const px = mu * mv * sw[0] + uu * mv * se[0] + uu * vv * ne[0] + mu * vv * nw[0];
-        const py = mu * mv * sw[1] + uu * mv * se[1] + uu * vv * ne[1] + mu * vv * nw[1];
-        const dPdu0 = mv * (se[0] - sw[0]) + vv * (ne[0] - nw[0]);
-        const dPdu1 = mv * (se[1] - sw[1]) + vv * (ne[1] - nw[1]);
-        const dPdv0 = mu * (nw[0] - sw[0]) + uu * (ne[0] - se[0]);
-        const dPdv1 = mu * (nw[1] - sw[1]) + uu * (ne[1] - se[1]);
+      for (let it = 0; it < NEWTON_MAX_ITERATIONS; it++) {
+        const dPdu0 = ex + v * gx;
+        const dPdu1 = ey + v * gy;
+        const dPdv0 = fx + u * gx;
+        const dPdv1 = fy + u * gy;
         const detJ = dPdu0 * dPdv1 - dPdu1 * dPdv0;
         if (detJ === 0) break;
-        const ex = lon - px;
-        const ey = lat - py;
-        uu += (ex * dPdv1 - ey * dPdv0) / detJ;
-        vv += (dPdu0 * ey - dPdu1 * ex) / detJ;
+        const rx = dx - (u * ex + v * fx + u * v * gx);
+        const ry = dy - (u * ey + v * fy + u * v * gy);
+        const du = (rx * dPdv1 - ry * dPdv0) / detJ;
+        const dv = (dPdu0 * ry - dPdu1 * rx) / detJ;
+        u += du;
+        v += dv;
+        if (Math.abs(du) + Math.abs(dv) < NEWTON_TOLERANCE) break;
       }
-      const idx = r * width + c;
-      u[idx] = uu;
-      v[idx] = vv;
+      const px = u * maxX;
+      const py = (1 - v) * maxY;
+      index[i] =
+        px >= 0 && px <= maxX && py >= 0 && py <= maxY
+          ? Math.round(py) * srcWidth + Math.round(px)
+          : -1;
     }
   }
-  return { u, v, width, height };
+  return { width, height, index };
 }
 
-/** Resample a source raster onto the AOI grid using a shared sample map. */
-export function sampleToGrid(src: Raster, map: SampleMap): Raster {
-  const out = new Uint8ClampedArray(map.width * map.height);
-  const w = src.width;
-  const h = src.height;
-  for (let i = 0; i < out.length; i++) {
-    const px = map.u[i] * (w - 1);
-    const py = (1 - map.v[i]) * (h - 1);
-    if (px < 0 || px > w - 1 || py < 0 || py > h - 1) continue;
-    const val = src.red[Math.round(py) * w + Math.round(px)];
-    out[i] = val; // 0 (nodata) is preserved
+/** Resample a source raster onto the AOI grid using a shared sample index. */
+export function sampleToGrid(src: Raster, map: SampleIndex): Raster {
+  const { index } = map;
+  const red = new Uint8ClampedArray(index.length); // 0 = nodata
+  const srcRed = src.red;
+  for (let i = 0; i < index.length; i++) {
+    const s = index[i];
+    if (s >= 0) red[i] = srcRed[s]; // 0 (nodata) is preserved
   }
-  return { width: map.width, height: map.height, red: out };
+  return { width: map.width, height: map.height, red };
 }
 
 // ---------------------------------------------------------------------------
 // Quicklook acquisition (public ASF browse artefacts, no authentication)
 // ---------------------------------------------------------------------------
 
+// Small LRU of in-flight / completed loads.  Decoded rasters are large, so
+// the cache is bounded; failed loads are evicted so a transient network
+// error can be retried instead of being remembered for the whole session.
+const FETCH_CACHE_LIMIT = 32;
 const fetchCache = new Map<string, Promise<unknown>>();
 
 function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
   const hit = fetchCache.get(key) as Promise<T> | undefined;
-  if (hit) return hit;
+  if (hit) {
+    fetchCache.delete(key);
+    fetchCache.set(key, hit); // mark as most recently used
+    return hit;
+  }
   const p = load();
   fetchCache.set(key, p);
+  p.catch(() => {
+    if (fetchCache.get(key) === p) fetchCache.delete(key);
+  });
+  if (fetchCache.size > FETCH_CACHE_LIMIT) {
+    const oldest = fetchCache.keys().next().value;
+    if (oldest !== undefined) fetchCache.delete(oldest);
+  }
   return p;
 }
+
+type SceneStatus = { sceneId: string; status: RasterAvailability };
 
 export class RasterUnavailableError extends Error {
   constructor(
     message: string,
-    public readonly sceneStatus: { sceneId: string; status: RasterAvailability }[],
+    public readonly sceneStatus: SceneStatus[],
   ) {
     super(message);
     this.name = "RasterUnavailableError";
@@ -192,22 +230,8 @@ async function fetchText(url: string): Promise<string> {
   return res.text();
 }
 
-async function fetchQuicklookRaster(url: string): Promise<Raster> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  const blob = await res.blob();
-  const bitmap = await createImageBitmap(blob);
-  const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("2D canvas context unavailable.");
-  ctx.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const red = new Uint8ClampedArray(canvas.width * canvas.height);
-  for (let i = 0; i < red.length; i++) red[i] = data.data[i * 4];
-  return { width: canvas.width, height: canvas.height, red };
+function fetchKml(scene: NisarScene, pol: string, url: string): Promise<string> {
+  return cached(`kml:${scene.id}:${pol}`, () => fetchText(url));
 }
 
 export interface QuicklookSource {
@@ -221,11 +245,9 @@ export function fetchSceneQuicklook(scene: NisarScene, pol: string): Promise<Qui
     const kmlUrl = scene.quicklooks.kml[pol];
     if (!pngUrl) throw new Error(`No quicklook for ${pol}.`);
     const [raster, kmlText] = await Promise.all([
-      fetchQuicklookRaster(pngUrl),
-      cached(`kml:${scene.id}:${pol}`, () => fetchText(kmlUrl)).catch(() =>
-        // any channel's KML has the same geometry; try the others
-        firstKml(scene, pol),
-      ),
+      loadRaster(pngUrl),
+      // any channel's KML has the same geometry; fall back to the others
+      fetchKml(scene, pol, kmlUrl).catch(() => firstKml(scene, pol)),
     ]);
     return { raster, quad: parseKmlQuad(kmlText) };
   });
@@ -235,7 +257,7 @@ async function firstKml(scene: NisarScene, skipPol: string): Promise<string> {
   for (const [pol, url] of Object.entries(scene.quicklooks.kml)) {
     if (pol === skipPol) continue;
     try {
-      return await cached(`kml:${scene.id}:${pol}`, () => fetchText(url));
+      return await fetchKml(scene, pol, url);
     } catch {
       /* try next */
     }
@@ -267,26 +289,6 @@ function baselineDays(a: string, b: string): number {
 
 function commonPolarisations(before: NisarScene, after: NisarScene): string[] {
   return before.polarisations.filter((p) => after.polarisations.includes(p));
-}
-
-export function computeSaturation(before: Raster, after: Raster, encoding: RasterEncoding): number {
-  const diffs: number[] = [];
-  const step = 3; // sample every 3rd pixel; deterministic
-  for (let i = 0; i < before.red.length; i += step) {
-    const b = before.red[i];
-    const a = after.red[i];
-    if (b === encoding.nodata || a === encoding.nodata) continue;
-    diffs.push(
-      encoding.type === "quicklook_dn"
-        ? a - b
-        : ((a - b) / 254) * ((encoding.dbMax ?? 5) - (encoding.dbMin ?? -30)),
-    );
-  }
-  if (diffs.length === 0) return encoding.type === "quicklook_dn" ? 10 : 1;
-  diffs.sort((x, y) => x - y);
-  const p98 = Math.abs(diffs[Math.floor((diffs.length - 1) * 0.98)]);
-  if (encoding.type === "quicklook_dn") return Math.max(10, Math.round(p98 / 5) * 5);
-  return Math.max(1, Math.round(p98 * 2) / 2);
 }
 
 function acquisitionFromScene(scene: NisarScene) {
@@ -325,14 +327,16 @@ export interface BuildPairOptions {
 export async function buildPairDataset(opts: BuildPairOptions): Promise<PairDataset> {
   const { before, after, aoi, areaLabel } = opts;
   const outWidth = opts.outputWidth ?? DEFAULT_OUTPUT_WIDTH;
+  const metadataOnly = (): SceneStatus[] => [
+    { sceneId: before.id, status: "metadata-only" },
+    { sceneId: after.id, status: "metadata-only" },
+  ];
+
   const pols = commonPolarisations(before, after);
   if (pols.length === 0) {
     throw new RasterUnavailableError(
       "The two scenes share no polarisation channel, so they cannot be compared.",
-      [
-        { sceneId: before.id, status: "metadata-only" },
-        { sceneId: after.id, status: "metadata-only" },
-      ],
+      metadataOnly(),
     );
   }
 
@@ -342,67 +346,69 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
     prepared.beforeId === before.id &&
     prepared.afterId === after.id;
 
-  let quad: Quad | null = null;
-  let beforeSrc: Record<string, Raster> = {};
-  let afterSrc: Record<string, Raster> = {};
+  // Source rasters per shared channel, in channel order.  All channels (and
+  // both sides of each) are fetched and decoded concurrently.
+  let sources: { pol: string; before: Raster; after: Raster }[];
+  let quad: Quad;
   let encoding: RasterEncoding = QUICKLOOK_ENCODING;
-  let availability: RasterAvailability = "quicklook";
   let limitations: string[];
   let source: string;
-  let status: ViewerDataset["status"] = "nisar_quicklook";
 
   if (preparedMatches) {
-    const manifest: Manifest = prepared.manifest;
-    const bounds = manifest.studyArea.bounds;
-    quad = quadFromBounds(bounds);
+    const { manifest } = prepared;
+    quad = quadFromBounds(manifest.studyArea.bounds);
     encoding = manifest.encoding;
-    availability = encoding.type === "db_linear" ? "calibrated" : "quicklook";
-    status = encoding.type === "db_linear" ? "nisar_calibrated" : "nisar_quicklook";
-    for (const pol of pols) {
-      const entry = manifest.rasters[pol];
-      if (!entry) continue;
-      beforeSrc[pol] = await loadRaster(rasterUrl(entry.before));
-      afterSrc[pol] = await loadRaster(rasterUrl(entry.after));
-    }
-    if (Object.keys(beforeSrc).length === 0) {
+    sources = await Promise.all(
+      pols
+        .filter((pol) => manifest.rasters[pol])
+        .map(async (pol) => {
+          const entry = manifest.rasters[pol];
+          const [b, a] = await Promise.all(
+            [entry.before, entry.after].map((path) => {
+              const url = rasterUrl(path);
+              return cached(`prepared:${url}`, () => loadRaster(url));
+            }),
+          );
+          return { pol, before: b, after: a };
+        }),
+    );
+    if (sources.length === 0) {
       throw new RasterUnavailableError(
         "The prepared dataset has no rasters for the shared polarisation channels.",
-        [
-          { sceneId: before.id, status: "metadata-only" },
-          { sceneId: after.id, status: "metadata-only" },
-        ],
+        metadataOnly(),
       );
     }
     limitations = manifest.dataset.limitations;
     source = manifest.dataset.source;
   } else {
-    const statusList: { sceneId: string; status: RasterAvailability }[] = [];
-    for (const pol of pols) {
-      try {
-        const [b, a] = await Promise.all([
-          fetchSceneQuicklook(before, pol),
-          fetchSceneQuicklook(after, pol),
-        ]);
-        if (b.raster.width !== a.raster.width || b.raster.height !== a.raster.height) {
-          throw new Error("The two quicklooks are not on the same grid.");
+    const loaded = await Promise.all(
+      pols.map(async (pol) => {
+        try {
+          const [b, a] = await Promise.all([
+            fetchSceneQuicklook(before, pol),
+            fetchSceneQuicklook(after, pol),
+          ]);
+          if (b.raster.width !== a.raster.width || b.raster.height !== a.raster.height) {
+            throw new Error("The two quicklooks are not on the same grid.");
+          }
+          if (!quadsAgree(b.quad, a.quad)) {
+            throw new Error("The two quicklooks have different georeferencing.");
+          }
+          return { pol, before: b.raster, after: a.raster, quad: b.quad };
+        } catch {
+          return null;
         }
-        if (!quadsAgree(b.quad, a.quad)) {
-          throw new Error("The two quicklooks have different georeferencing.");
-        }
-        if (quad === null) quad = b.quad;
-        beforeSrc[pol] = b.raster;
-        afterSrc[pol] = a.raster;
-      } catch {
-        statusList.push({ sceneId: before.id, status: "metadata-only" });
-        statusList.push({ sceneId: after.id, status: "metadata-only" });
-      }
-    }
-    if (Object.keys(beforeSrc).length === 0) {
+      }),
+    );
+    const usable = loaded.filter((entry) => entry !== null);
+    if (usable.length === 0) {
       throw new RasterUnavailableError(
         "Quicklook rasters for this pair are not available. Scene metadata is shown instead of a comparison.",
-        statusList,
+        loaded.flatMap(() => metadataOnly()),
       );
     }
+    sources = usable;
+    quad = usable[0].quad;
     source =
       "NASA/ISRO NISAR L2 GCOV (geocoded observables), archived by NASA ASF DAAC — ASF browse quicklooks";
     const gridPixelM =
@@ -411,44 +417,39 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
     limitations = QUICKLOOK_LIMITATIONS(Math.round(gridPixelM));
   }
 
-  if (quad === null) {
-    throw new RasterUnavailableError(
-      "No raster could be prepared for this pair.",
-      [
-        { sceneId: before.id, status: "metadata-only" },
-        { sceneId: after.id, status: "metadata-only" },
-      ],
-    );
-  }
+  const calibrated = encoding.type === "db_linear";
 
-  const map = buildSampleMap(quad, aoi, outWidth);
+  // One sample index per distinct source grid (normally exactly one).
+  const indexes = new Map<string, SampleIndex>();
+  const resample = (src: Raster): Raster => {
+    const key = `${src.width}x${src.height}`;
+    let map = indexes.get(key);
+    if (!map) {
+      map = buildSampleIndex(quad, aoi, outWidth, src.width, src.height);
+      indexes.set(key, map);
+    }
+    return sampleToGrid(src, map);
+  };
+
   const perPol: PairDataset["perPol"] = {};
-  for (const pol of Object.keys(beforeSrc)) {
-    perPol[pol] = {
-      before: sampleToGrid(beforeSrc[pol], map),
-      after: sampleToGrid(afterSrc[pol], map),
-    };
+  const layers: Record<string, string> = {};
+  for (const src of sources) {
+    perPol[src.pol] = { before: resample(src.before), after: resample(src.after) };
+    layers[src.pol] = layerLabel(src.pol);
   }
 
-  const firstPol = Object.keys(perPol)[0];
-  const saturation = computeSaturation(
-    perPol[firstPol].before,
-    perPol[firstPol].after,
-    encoding,
-  );
-
-  const layers: Record<string, string> = {};
-  for (const pol of Object.keys(perPol)) layers[pol] = layerLabel(pol);
+  const first = perPol[sources[0].pol];
+  const saturation = computeSaturation(first.before.red, first.after.red, encoding);
 
   const viewer: ViewerDataset = {
-    status,
-    availability,
+    status: calibrated ? "nisar_calibrated" : "nisar_quicklook",
+    availability: calibrated ? "calibrated" : "quicklook",
     areaLabel,
     source,
     productLine: `${before.band === after.band ? before.band : `${before.band}/${after.band}`} · ${before.productType} · NISAR`,
     band: before.band,
     productType: before.productType,
-    polarisations: Object.keys(perPol),
+    polarisations: sources.map((src) => src.pol),
     layers,
     encoding,
     changeScale: { saturation, unit: encoding.unit },

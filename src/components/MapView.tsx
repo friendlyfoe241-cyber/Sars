@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import {
   MapContainer,
@@ -13,8 +13,7 @@ import type { Aoi } from "../lib/aoi";
 import type { NisarScene } from "../lib/discovery";
 import type { ViewerDataset } from "../lib/data";
 import { changeColour } from "../lib/changeDetection";
-
-export type DisplayLayer = "before" | "after" | "change";
+import type { DisplayLayer } from "../lib/useChangeLayers";
 
 interface MapViewProps {
   aoi: Aoi | null;
@@ -27,6 +26,8 @@ interface MapViewProps {
   layer: DisplayLayer;
   pol: string;
   overlayUrl: string | null;
+  /** grid bounds of the loaded pair (the AOI it was prepared for) */
+  overlayBounds: Aoi | null;
   viewer: ViewerDataset | null;
   /** bump to re-fit the map to the AOI */
   fitKey: number;
@@ -216,7 +217,66 @@ function ScaleBar() {
   return null;
 }
 
-export default function MapView({
+const FOOTPRINT_STYLE: L.PathOptions = {
+  color: "#2563EB",
+  weight: 1,
+  opacity: 0.35,
+  fillColor: "#2563EB",
+  fill: false,
+  fillOpacity: 0,
+};
+const FOOTPRINT_SELECTED_STYLE: L.PathOptions = {
+  ...FOOTPRINT_STYLE,
+  weight: 2,
+  opacity: 1,
+  fill: true,
+  fillOpacity: 0.12,
+};
+const AOI_STYLE: L.PathOptions = {
+  color: "#2563EB",
+  weight: 2,
+  fill: true,
+  fillColor: "#2563EB",
+  fillOpacity: 0.03,
+};
+
+/**
+ * One catalogue footprint.  Memoised with stable positions, style and
+ * handlers so that selecting a scene only touches the two polygons whose
+ * state changed instead of re-projecting every footprint on the map.
+ */
+const Footprint = memo(function Footprint({
+  scene,
+  selected,
+  onSelect,
+}: {
+  scene: NisarScene;
+  selected: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const positions = useMemo(
+    () => scene.footprint.map(([lon, lat]) => [lat, lon] as [number, number]),
+    [scene.footprint],
+  );
+  const eventHandlers = useMemo<L.LeafletEventHandlerFnMap>(
+    () => ({
+      click: (e) => {
+        L.DomEvent.stopPropagation(e.originalEvent);
+        onSelect(scene.id);
+      },
+    }),
+    [scene.id, onSelect],
+  );
+  return (
+    <Polygon
+      positions={positions}
+      eventHandlers={eventHandlers}
+      pathOptions={selected ? FOOTPRINT_SELECTED_STYLE : FOOTPRINT_STYLE}
+    />
+  );
+});
+
+function MapView({
   aoi,
   scenes,
   selectedSceneId,
@@ -227,12 +287,22 @@ export default function MapView({
   layer,
   pol,
   overlayUrl,
+  overlayBounds,
   viewer,
   fitKey,
   maxFootprints = 200,
 }: MapViewProps) {
-  const shown = scenes.slice(0, maxFootprints);
-  const aoiBounds = aoi ? boundsOf(aoi) : null;
+  const shown = useMemo(
+    () => scenes.slice(0, maxFootprints).filter((s) => s.footprint.length >= 3),
+    [scenes, maxFootprints],
+  );
+  // Stable bounds objects: react-leaflet re-applies bounds whenever the prop
+  // identity changes.
+  const aoiBounds = useMemo(() => (aoi ? boundsOf(aoi) : null), [aoi]);
+  const imageBounds = useMemo(
+    () => (overlayBounds ? boundsOf(overlayBounds) : null),
+    [overlayBounds],
+  );
   const drawGuard = useRef(0);
 
   return (
@@ -252,55 +322,25 @@ export default function MapView({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         />
 
-        {overlayUrl && aoiBounds && (
+        {overlayUrl && imageBounds && (
           <ImageOverlay
-            key={overlayUrl}
             url={overlayUrl}
-            bounds={aoiBounds}
+            bounds={imageBounds}
             opacity={layer === "change" ? 0.9 : 0.95}
           />
         )}
 
         {/* footprints of actual catalogue results only */}
-        {shown.map((scene) => {
-          const selected = scene.id === selectedSceneId;
-          if (scene.footprint.length < 3) return null;
-          return (
-            <Polygon
-              key={scene.id}
-              positions={scene.footprint.map(
-                ([lon, lat]) => [lat, lon] as [number, number],
-              )}
-              eventHandlers={{
-                click: (e) => {
-                  L.DomEvent.stopPropagation(e.originalEvent);
-                  onSelectScene(scene.id);
-                },
-              }}
-              pathOptions={{
-                color: "#2563EB",
-                weight: selected ? 2 : 1,
-                opacity: selected ? 1 : 0.35,
-                fillColor: "#2563EB",
-                fill: selected,
-                fillOpacity: selected ? 0.12 : 0,
-              }}
-            />
-          );
-        })}
-
-        {aoiBounds && (
-          <Rectangle
-            bounds={aoiBounds}
-            pathOptions={{
-              color: "#2563EB",
-              weight: 2,
-              fill: true,
-              fillColor: "#2563EB",
-              fillOpacity: 0.03,
-            }}
+        {shown.map((scene) => (
+          <Footprint
+            key={scene.id}
+            scene={scene}
+            selected={scene.id === selectedSceneId}
+            onSelect={onSelectScene}
           />
-        )}
+        ))}
+
+        {aoiBounds && <Rectangle bounds={aoiBounds} pathOptions={AOI_STYLE} />}
 
         <ClickHandler enabled={!drawMode} onPick={onPickLocation} drawGuard={drawGuard} />
         <AoiDrawer enabled={drawMode} onAoiDrawn={onAoiDrawn} drawGuard={drawGuard} />
@@ -318,3 +358,5 @@ export default function MapView({
     </div>
   );
 }
+
+export default memo(MapView);

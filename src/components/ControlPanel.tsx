@@ -1,7 +1,7 @@
 import type { ViewerDataset } from "../lib/data";
 import { formatAcquisitionTime } from "../lib/data";
 import { Section } from "./ui";
-import type { DisplayLayer } from "./MapView";
+import type { DisplayLayer } from "../lib/useChangeLayers";
 
 interface ControlPanelProps {
   dataset: ViewerDataset;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import { Section } from "./ui";
 import { formatDate, formatAcquisitionTime } from "../lib/data";
 import type { NisarScene } from "../lib/discovery";
@@ -37,7 +37,7 @@ function MaturityTag({ maturity }: { maturity: string }) {
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[88px_1fr] items-start gap-x-3 py-1">
       <div className="text-[11px] leading-[1.6] text-app-muted">{label}</div>
@@ -48,7 +48,78 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-export default function ResultsPanel({
+/**
+ * One row of the scene list.  Memoised: with up to 300 results, only rows
+ * whose selection or role actually changed re-render.
+ */
+const SceneRow = memo(function SceneRow({
+  scene,
+  isSelected,
+  isBefore,
+  isAfter,
+  onSelectScene,
+  onAssignRole,
+}: {
+  scene: NisarScene;
+  isSelected: boolean;
+  isBefore: boolean;
+  isAfter: boolean;
+  onSelectScene: (id: string) => void;
+  onAssignRole: (role: "before" | "after", id: string) => void;
+}) {
+  const time = scene.startTime.slice(11, 16);
+  const roleButton = (role: "before" | "after", label: string, active: boolean) => (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onAssignRole(role, scene.id);
+      }}
+      className={`rounded-[2px] border px-1.5 py-px text-[9px] ${
+        active
+          ? "border-app-accent bg-app-accent text-white"
+          : "border-app-border text-app-muted hover:text-app-text"
+      }`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div
+      onClick={() => onSelectScene(scene.id)}
+      className={`cursor-pointer rounded-[3px] border px-2 py-1.5 ${
+        isSelected
+          ? "border-app-accent bg-app-subtle"
+          : "border-app-border bg-white hover:bg-app-subtle"
+      }`}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-[11px] text-app-text">
+          {formatDate(scene.startTime)}
+          {time && <span className="text-app-muted"> {time} UTC</span>}
+        </div>
+        <MaturityTag maturity={scene.maturity} />
+      </div>
+      <div className="truncate font-mono text-[9px] leading-[1.5] text-app-muted">
+        {scene.id}
+      </div>
+      <div className="mt-0.5 flex items-center justify-between gap-2">
+        <div className="truncate text-[10px] text-app-muted">
+          {scene.band} · {scene.polarisations.join("/")} ·{" "}
+          {scene.orbitDirection.toLowerCase()} ·{" "}
+          {scene.track !== null ? `track ${scene.track}` : "track ?"}{" "}
+          {scene.frame !== null ? `· frame ${scene.frame}` : ""}
+        </div>
+        <div className="flex shrink-0 gap-1">
+          {roleButton("before", "Before", isBefore)}
+          {roleButton("after", "After", isAfter)}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+function ResultsPanel({
   scenes,
   pairs,
   loading,
@@ -68,11 +139,15 @@ export default function ResultsPanel({
   const [from, setFrom] = useState(dateFrom);
   const [to, setTo] = useState(dateTo);
 
-  const selected = scenes.find((s) => s.id === selectedSceneId) ?? null;
-  const beforeScene = scenes.find((s) => s.id === roleBefore) ?? null;
-  const afterScene = scenes.find((s) => s.id === roleAfter) ?? null;
-  const issues =
-    beforeScene && afterScene ? pairIssues(beforeScene, afterScene) : [];
+  const byId = useMemo(() => new Map(scenes.map((s) => [s.id, s])), [scenes]);
+  const lookup = (id: string | null) => (id ? (byId.get(id) ?? null) : null);
+  const selected = lookup(selectedSceneId);
+  const beforeScene = lookup(roleBefore);
+  const afterScene = lookup(roleAfter);
+  const issues = useMemo(
+    () => (beforeScene && afterScene ? pairIssues(beforeScene, afterScene) : []),
+    [beforeScene, afterScene],
+  );
 
   return (
     <Section
@@ -181,76 +256,17 @@ export default function ResultsPanel({
 
           {/* scene list */}
           <div className="mt-2.5 max-h-[236px] space-y-1 overflow-y-auto pr-0.5">
-            {scenes.map((scene) => {
-              const isBefore = scene.id === roleBefore;
-              const isAfter = scene.id === roleAfter;
-              const isSelected = scene.id === selectedSceneId;
-              return (
-                <div
-                  key={scene.id}
-                  onClick={() => onSelectScene(scene.id)}
-                  className={`cursor-pointer rounded-[3px] border px-2 py-1.5 ${
-                    isSelected
-                      ? "border-app-accent bg-app-subtle"
-                      : "border-app-border bg-white hover:bg-app-subtle"
-                  }`}
-                >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <div className="text-[11px] text-app-text">
-                      {formatDate(scene.startTime)}
-                      {scene.startTime.slice(11, 16) && (
-                        <span className="text-app-muted">
-                          {" "}
-                          {scene.startTime.slice(11, 16)} UTC
-                        </span>
-                      )}
-                    </div>
-                    <MaturityTag maturity={scene.maturity} />
-                  </div>
-                  <div className="truncate font-mono text-[9px] leading-[1.5] text-app-muted">
-                    {scene.id}
-                  </div>
-                  <div className="mt-0.5 flex items-center justify-between gap-2">
-                    <div className="truncate text-[10px] text-app-muted">
-                      {scene.band} · {scene.polarisations.join("/")} ·{" "}
-                      {scene.orbitDirection.toLowerCase()} ·{" "}
-                      {scene.track !== null ? `track ${scene.track}` : "track ?"}{" "}
-                      {scene.frame !== null ? `· frame ${scene.frame}` : ""}
-                    </div>
-                    <div className="flex shrink-0 gap-1">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onAssignRole("before", scene.id);
-                        }}
-                        className={`rounded-[2px] border px-1.5 py-px text-[9px] ${
-                          isBefore
-                            ? "border-app-accent bg-app-accent text-white"
-                            : "border-app-border text-app-muted hover:text-app-text"
-                        }`}
-                      >
-                        Before
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onAssignRole("after", scene.id);
-                        }}
-                        className={`rounded-[2px] border px-1.5 py-px text-[9px] ${
-                          isAfter
-                            ? "border-app-accent bg-app-accent text-white"
-                            : "border-app-border text-app-muted hover:text-app-text"
-                        }`}
-                      >
-                        After
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {scenes.map((scene) => (
+              <SceneRow
+                key={scene.id}
+                scene={scene}
+                isSelected={scene.id === selectedSceneId}
+                isBefore={scene.id === roleBefore}
+                isAfter={scene.id === roleAfter}
+                onSelectScene={onSelectScene}
+                onAssignRole={onAssignRole}
+              />
+            ))}
           </div>
 
           {/* pair assembly */}
@@ -335,3 +351,5 @@ export default function ResultsPanel({
     </Section>
   );
 }
+
+export default memo(ResultsPanel);

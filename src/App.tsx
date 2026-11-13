@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ControlPanel from "./components/ControlPanel";
-import MapView, { type DisplayLayer } from "./components/MapView";
+import MapView from "./components/MapView";
 import ObservationInfo, {
   type AiExplanation,
   type AiState,
@@ -18,12 +18,6 @@ import {
   type Aoi,
 } from "./lib/aoi";
 import {
-  computeDifference,
-  decodeValues,
-  summarizeChange,
-  type ChangeSummary,
-} from "./lib/changeDetection";
-import {
   datasetStatusLabel,
   datasetStatusNote,
   loadManifest,
@@ -33,18 +27,8 @@ import {
 import { searchNisarGcov, type NisarScene } from "./lib/discovery";
 import { geocodePlace } from "./lib/geocode";
 import { findCompatiblePairs, type ScenePair } from "./lib/pairing";
-import { renderChange, renderObservation } from "./lib/raster";
-import {
-  buildPairDataset,
-  type PairDataset,
-} from "./lib/rasterSource";
-
-interface PolLayers {
-  beforeUrl: string;
-  afterUrl: string;
-  changeUrl: string;
-  summary: ChangeSummary;
-}
+import { buildPairDataset, type PairDataset } from "./lib/rasterSource";
+import { useChangeLayers, type DisplayLayer } from "./lib/useChangeLayers";
 
 type PairState =
   | { status: "idle" }
@@ -84,13 +68,18 @@ export default function App() {
   // ---- viewer --------------------------------------------------------
   const [pol, setPol] = useState("");
   const [layer, setLayer] = useState<DisplayLayer>("change");
-  const [layers, setLayers] = useState<PolLayers | null>(null);
-  const [computing, setComputing] = useState(false);
   const [ai, setAi] = useState<AiState>({ status: "idle" });
 
+  // Latest-request-wins guards: a slow earlier search or pair load must not
+  // overwrite the result of a newer one.
+  const searchSeq = useRef(0);
+  const pairSeq = useRef(0);
+
   const pairs = useMemo(() => findCompatiblePairs(scenes, { aoi: aoi ?? undefined }), [scenes, aoi]);
-  const viewer: ViewerDataset | null =
-    pairState.status === "ready" ? pairState.dataset.viewer : null;
+  const pairDataset: PairDataset | null =
+    pairState.status === "ready" ? pairState.dataset : null;
+  const viewer: ViewerDataset | null = pairDataset?.viewer ?? null;
+  const { summary, overlayUrl, rendering } = useChangeLayers(pairDataset, pol, layer);
 
   // ---- startup: the prepared example dataset -------------------------
   useEffect(() => {
@@ -105,10 +94,8 @@ export default function App() {
         });
         // The example study area is the initial AOI only; nothing is loaded
         // or searched until the user asks for it.
-        if (!aoi) {
-          setAoi(m.studyArea.bounds);
-          setLocationLabel(`${m.studyArea.name}, ${m.studyArea.country}`);
-        }
+        setAoi((current) => current ?? m.studyArea.bounds);
+        setLocationLabel((current) => current || `${m.studyArea.name}, ${m.studyArea.country}`);
       })
       .catch(() => {
         /* the example dataset is optional; discovery works without it */
@@ -116,56 +103,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ---- viewer rendering (unchanged maths, dynamic inputs) ------------
-  useEffect(() => {
-    if (pairState.status !== "ready" || !pol) return;
-    const pair = pairState.dataset;
-    const rasters = pair.perPol[pol];
-    if (!rasters) return;
-    let cancelled = false;
-    setComputing(true);
-    try {
-      const beforeValues = decodeValues(rasters.before.red, pair.viewer.encoding);
-      const afterValues = decodeValues(rasters.after.red, pair.viewer.encoding);
-      const diff = computeDifference(beforeValues, afterValues);
-      const summary = summarizeChange(diff, pair.viewer.changeScale.unit);
-      const next: PolLayers = {
-        beforeUrl: renderObservation(rasters.before, pair.viewer.encoding),
-        afterUrl: renderObservation(rasters.after, pair.viewer.encoding),
-        changeUrl: renderChange(
-          rasters.before,
-          rasters.after,
-          pair.viewer.encoding,
-          pair.viewer.changeScale.saturation,
-        ),
-        summary,
-      };
-      if (!cancelled) {
-        setLayers(next);
-        setComputing(false);
-      }
-    } catch (err) {
-      if (!cancelled) {
-        setComputing(false);
-        setSearchError(err instanceof Error ? err.message : String(err));
-      }
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [pairState, pol]);
-
-  const overlayUrl = useMemo(() => {
-    if (!layers) return null;
-    return layer === "before"
-      ? layers.beforeUrl
-      : layer === "after"
-        ? layers.afterUrl
-        : layers.changeUrl;
-  }, [layers, layer]);
 
   // ---- location and AOI handlers ------------------------------------
   const applyLocation = useCallback(
@@ -248,6 +186,8 @@ export default function App() {
   // ---- catalogue search ---------------------------------------------
   const runSearch = useCallback(
     async (bounds: Aoi, from: string, to: string) => {
+      const seq = ++searchSeq.current;
+      pairSeq.current++; // abandon any pair load started for the old results
       setSearching(true);
       setSearchError(null);
       setSearched(true);
@@ -257,7 +197,6 @@ export default function App() {
       setRoleBefore(null);
       setRoleAfter(null);
       setPairState({ status: "idle" });
-      setLayers(null);
       setAi({ status: "idle" });
       try {
         const result = await searchNisarGcov({
@@ -265,14 +204,16 @@ export default function App() {
           start: from || undefined,
           end: to || undefined,
         });
+        if (seq !== searchSeq.current) return;
         setScenes(result.scenes);
         setTruncated(result.truncated);
       } catch (err) {
+        if (seq !== searchSeq.current) return;
         setSearchError(
           err instanceof Error ? err.message : "Catalogue search failed.",
         );
       } finally {
-        setSearching(false);
+        if (seq === searchSeq.current) setSearching(false);
       }
     },
     [],
@@ -296,9 +237,9 @@ export default function App() {
   const loadPair = useCallback(
     async (before: NisarScene, after: NisarScene) => {
       if (!aoi) return;
+      const seq = ++pairSeq.current;
       setPairState({ status: "loading" });
       setAi({ status: "idle" });
-      setLayers(null);
       try {
         const dataset = await buildPairDataset({
           before,
@@ -307,9 +248,11 @@ export default function App() {
           prepared: example,
           areaLabel: locationLabel || formatAoi(aoi),
         });
+        if (seq !== pairSeq.current) return;
         setPairState({ status: "ready", dataset });
         setPol(dataset.viewer.polarisations[0] ?? "");
       } catch (err) {
+        if (seq !== pairSeq.current) return;
         setPairState({
           status: "error",
           message:
@@ -352,7 +295,7 @@ export default function App() {
 
   // ---- Gemini explain ------------------------------------------------
   const handleExplain = useCallback(async () => {
-    if (!viewer || !layers) return;
+    if (!viewer || !summary) return;
     setAi({ status: "loading" });
     try {
       const res = await fetch("/api/explain-change", {
@@ -377,7 +320,7 @@ export default function App() {
             unit: viewer.encoding.unit,
             limitations: viewer.limitations,
           },
-          statistics: layers.summary,
+          statistics: summary,
         }),
       });
       const body = await res.json().catch(() => null);
@@ -407,7 +350,9 @@ export default function App() {
           "The explanation endpoint is not available. In local development run `vercel dev` instead of `npm run dev`.",
       });
     }
-  }, [viewer, layers, pol]);
+  }, [viewer, summary, pol]);
+
+  const handleToggleDraw = useCallback(() => setDrawMode((d) => !d), []);
 
   const statusChip = viewer
     ? datasetStatusLabel(viewer.status)
@@ -441,7 +386,7 @@ export default function App() {
             aoiSizeKm={aoiSizeKm}
             onAoiSizeChange={handleAoiSizeChange}
             drawMode={drawMode}
-            onToggleDraw={() => setDrawMode((d) => !d)}
+            onToggleDraw={handleToggleDraw}
             onSearchData={handleSearchData}
             searching={searching}
             exampleLabel={example ? `${example.manifest.studyArea.name}` : null}
@@ -493,12 +438,12 @@ export default function App() {
                 onPolChange={setPol}
                 layer={layer}
                 onLayerChange={setLayer}
-                computing={computing}
+                computing={rendering}
               />
               <ObservationInfo
                 dataset={pairState.dataset.viewer}
                 pol={pol}
-                summary={layers?.summary ?? null}
+                summary={summary}
                 ai={ai}
                 onExplain={handleExplain}
               />
@@ -521,6 +466,7 @@ export default function App() {
             layer={layer}
             pol={pol}
             overlayUrl={overlayUrl}
+            overlayBounds={pairDataset?.bounds ?? null}
             viewer={viewer}
             fitKey={fitKey}
           />

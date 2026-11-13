@@ -23,7 +23,7 @@ project/
 ├── public/data/               # Prepared example dataset (Tonj wetlands, South Sudan)
 ├── src/
 │   ├── components/            # MapView, SearchPanel, ResultsPanel, ControlPanel, ObservationInfo
-│   ├── lib/                   # aoi, geocode, discovery, pairing, raster, changeDetection, data
+│   ├── lib/                   # aoi, geocode, discovery, pairing, raster, rasterSource, changeDetection, useChangeLayers, data
 │   └── App.tsx
 ├── api/                       # Vercel serverless function (Gemini integration)
 ├── scripts/                   # GCOV/quicklook preparation scripts & smoke tests

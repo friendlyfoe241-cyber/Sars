@@ -145,8 +145,14 @@ def resample_to_window(img: np.ndarray, quad, window, out_w: int):
         det = dpdu[:, :, 0] * dpdv[:, :, 1] - dpdu[:, :, 1] * dpdv[:, :, 0]
         dx = LON - p[:, :, 0]
         dy = LAT - p[:, :, 1]
-        u = u + (dx * dpdv[:, :, 1] - dy * dpdv[:, :, 0]) / det
-        v = v + (dpdu[:, :, 0] * dy - dpdu[:, :, 1] * dx) / det
+        du = (dx * dpdv[:, :, 1] - dy * dpdv[:, :, 0]) / det
+        dv = (dpdu[:, :, 0] * dy - dpdu[:, :, 1] * dx) / det
+        u = u + du
+        v = v + dv
+        # Newton converges quadratically (2-4 steps for these near-affine
+        # quads); stop once the correction is far below one source pixel.
+        if max(np.abs(du).max(), np.abs(dv).max()) < 1e-12:
+            break
 
     px = u * (w_img - 1)
     py = (1 - v) * (h_img - 1)
