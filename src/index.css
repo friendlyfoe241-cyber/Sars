@@ -11,6 +11,7 @@
 @import "./styles/orbital.css" layer(components);
 @import "./styles/shell.css" layer(components);
 @import "./styles/leaflet.css" layer(components);
+@import "./styles/instruments.css" layer(components);
 
 /* Expose the tokens to Tailwind: bg-orb-surface, text-orb-text-muted,
    border-orb-border, font-display, rounded-control ... They resolve to the

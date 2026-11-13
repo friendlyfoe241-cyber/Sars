@@ -16,6 +16,8 @@
   --orb-gap: 16px;
   --orb-footer-gap: 28px;
   --orb-bottom-inset: 0px;
+  --orb-row-h: 280px;
+  --orb-row-inset: 0px;
   --orb-map-left: 12px;
   --orb-fit-left: 12;
   --orb-fit-right: 12;
@@ -412,9 +414,10 @@
   background-position: 0 0, 4px 4px;
 }
 
+/* Instrument row (observations, results, graph): see instruments.css. */
 .orb-bottom {
   grid-area: bottom;
-  display: none; /* later: observations / results tables and time-series row */
+  min-width: 0;
 }
 
 /* ---- tablet: two columns below the map --------------------------------- */
@@ -511,12 +514,17 @@
     position: absolute;
     z-index: 900;
     left: var(--orb-map-left);
-    bottom: calc(var(--orb-footer-gap) + var(--orb-gap));
+    bottom: calc(var(--orb-footer-gap) + var(--orb-gap) + var(--orb-row-inset));
     width: min(248px, calc(100% - 24px));
     border-width: 1px;
     box-shadow: var(--orb-shadow);
   }
-  .orb-hint { top: auto; bottom: calc(var(--orb-footer-gap) + 64px); }
+  .orb-hint { top: auto; bottom: calc(var(--orb-footer-gap) + 64px + var(--orb-row-inset)); }
+  /* with the instrument row open, the map is fitted above it */
+  .orb-shell[data-instruments="open"] {
+    --orb-row-inset: calc(var(--orb-row-h) + var(--orb-gap));
+    --orb-fit-bottom: 350;
+  }
 }
 
 @media (min-width: 1024px) and (max-width: 1279px) {
@@ -527,12 +535,20 @@
 /* ---- wide desktop: right panel gets its own column --------------------- */
 @media (min-width: 1280px) {
   .orb-shell {
+    --orb-legend-right: calc(var(--orb-right-w) + var(--orb-gap) * 2);
     --orb-left-w: 300px;
     --orb-fit-right: 340;
     grid-template-columns: calc(var(--orb-left-w) + var(--orb-gap)) minmax(0, 1fr) calc(var(--orb-right-w) + var(--orb-gap));
     grid-template-areas: "top top top" "left map right" "bottom bottom bottom";
   }
+  /* the instrument row takes the bottom-left of the map, so the legend
+     moves to the bottom-right (above the row, beside the details column) */
+  .orb-shell[data-instruments="open"] .orb-legend {
+    left: auto;
+    right: var(--orb-legend-right);
+  }
   .orb-shell[data-details="closed"] {
+    --orb-legend-right: var(--orb-gap);
     grid-template-columns: calc(var(--orb-left-w) + var(--orb-gap)) minmax(0, 1fr) 0;
     --orb-fit-right: 40;
   }

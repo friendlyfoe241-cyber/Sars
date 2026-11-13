@@ -2,13 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isAbortError } from "./lib/abort";
 import CataloguePanel from "./components/CataloguePanel";
 import ComparePanel from "./components/ComparePanel";
+import InstrumentRow, { type InstrumentTab } from "./components/InstrumentRow";
 import MapView from "./components/MapView";
+import ObservationsTable from "./components/ObservationsTable";
+import ResultsTable from "./components/ResultsTable";
+import TemporalGraph, { type GraphView } from "./components/TemporalGraph";
 import ObservationPanel from "./components/ObservationPanel";
 import SearchPanel from "./components/SearchPanel";
 import StateNotice from "./components/StateNotice";
 import StatsPanel, { type AiExplanation, type AiState } from "./components/StatsPanel";
 import TopBar, { type ChipTone } from "./components/TopBar";
 import { Dock } from "./components/ui";
+import { usePairStats } from "./lib/usePairStats";
 import { DESTINATIONS, type Dest } from "./ui/types";
 import { useLayoutMode } from "./ui/useLayoutMode";
 import {
@@ -100,6 +105,11 @@ export default function App() {
   // The observation panel is open by default except where it is an overlay.
   const [detailsOpen, setDetailsOpen] = useState(layoutMode !== "mid");
   useEffect(() => setDetailsOpen(layoutMode !== "mid"), [layoutMode]);
+  // Instrument row (observations / results / graph): collapsible on desktop,
+  // always shown (stacked) on smaller screens.
+  const [instrOpen, setInstrOpen] = useState(true);
+  const [instrTab, setInstrTab] = useState<InstrumentTab>("observations");
+  const [graphView, setGraphView] = useState<GraphView>("date");
   // With a pair loaded only its own footprints are drawn unless restored.
   const [showAllFootprints, setShowAllFootprints] = useState(false);
 
@@ -604,6 +614,20 @@ export default function App() {
   const handleFit = useCallback(() => setFitKey((k) => k + 1), []);
   const handleToggleControls = useCallback(() => setControlsOpen((o) => !o), []);
   const handleToggleDetails = useCallback(() => setDetailsOpen((o) => !o), []);
+  // Re-fit after the row opens or closes so the AOI stays clear of it.
+  const handleToggleInstruments = useCallback(() => {
+    setInstrOpen((o) => !o);
+    setFitKey((k) => k + 1);
+  }, []);
+  const handleShowResults = useCallback(() => {
+    setInstrOpen(true);
+    setInstrTab("results");
+    window.setTimeout(() => {
+      const el = document.getElementById("instrument-results");
+      el?.scrollIntoView({ block: "nearest" });
+      el?.focus({ preventScroll: true });
+    }, 60);
+  }, []);
 
   const handleRetryPair = useCallback(() => {
     if (roleBefore && roleAfter) handleLoadPair(roleBefore, roleAfter);
@@ -624,6 +648,40 @@ export default function App() {
   const beforeScene = (roleBefore && sceneById.get(roleBefore)) || null;
   const afterScene = (roleAfter && sceneById.get(roleAfter)) || null;
   const selectedScene = (selectedSceneId && sceneById.get(selectedSceneId)) || null;
+
+  // ---- instrument row: derived from the same key-gated active pair ------
+  const pairStats = usePairStats(activePair);
+  const pairLoaded = viewState.kind === "ready" || viewState.kind === "no-valid-pixels";
+  // Scenes known to lack usable rasters: every suggested pair containing the
+  // scene is metadata-only, or the selected pair is known unavailable.
+  const metadataOnlySceneIds = useMemo(() => {
+    const tally = new Map<string, { total: number; meta: number }>();
+    for (const p of pairs) {
+      const meta = metadataOnlyPairIds.has(scenePairId(p.before.id, p.after.id)) ? 1 : 0;
+      for (const id of [p.before.id, p.after.id]) {
+        const t = tally.get(id) ?? { total: 0, meta: 0 };
+        t.total++;
+        t.meta += meta;
+        tally.set(id, t);
+      }
+    }
+    const ids = new Set<string>();
+    for (const [id, t] of tally) if (t.meta === t.total) ids.add(id);
+    if (roleBefore && roleAfter) {
+      const b = sceneById.get(roleBefore);
+      const a = sceneById.get(roleAfter);
+      if (
+        unavailablePairs.has(scenePairId(roleBefore, roleAfter)) ||
+        (b && a && pairQuicklookStatus(b, a, example) === "metadata-only")
+      ) {
+        ids.add(roleBefore);
+        ids.add(roleAfter);
+      }
+    }
+    return ids;
+  }, [pairs, metadataOnlyPairIds, roleBefore, roleAfter, sceneById, unavailablePairs, example]);
+  const rowCollapsible = layoutMode === "wide" || layoutMode === "mid";
+  const rowVisible = !rowCollapsible || instrOpen;
 
   // ---- top bar: title, context and status reflect the real selection ---
   const title = locationLabel || (aoi ? formatAoi(aoi) : "Choose a location");
@@ -731,6 +789,8 @@ export default function App() {
             dataset={viewState.dataset.viewer}
             pol={channel}
             summary={summary}
+            statsInRow={rowVisible}
+            onShowResults={handleShowResults}
             ai={ai}
             onExplain={handleExplain}
           />
@@ -742,7 +802,11 @@ export default function App() {
   }
 
   return (
-    <div className="orbital-theme orb-shell" data-details={detailsOpen ? "open" : "closed"}>
+    <div
+      className="orbital-theme orb-shell"
+      data-details={detailsOpen ? "open" : "closed"}
+      data-instruments={rowVisible ? "open" : "closed"}
+    >
       <MapView
         aoi={aoi}
         scenes={scenes}
@@ -780,6 +844,8 @@ export default function App() {
         onToggleControls={handleToggleControls}
         detailsOpen={detailsOpen}
         onToggleDetails={handleToggleDetails}
+        instrumentsOpen={instrOpen}
+        onToggleInstruments={handleToggleInstruments}
       />
 
       <Dock
@@ -812,9 +878,37 @@ export default function App() {
         />
       </Dock>
 
-      {/* Reserved grid area for the later instrument row (observations table,
-          results table, time series). Empty on purpose. */}
-      <div className="orb-bottom" aria-hidden />
+      <InstrumentRow
+        layout={layoutMode}
+        open={instrOpen}
+        onToggle={handleToggleInstruments}
+        tab={instrTab}
+        onTab={setInstrTab}
+        observations={
+          <ObservationsTable
+            status={viewState}
+            scenes={scenes}
+            pairLoaded={pairLoaded}
+            roleBefore={roleBefore}
+            roleAfter={roleAfter}
+            metadataOnlyIds={metadataOnlySceneIds}
+            selectedSceneId={selectedSceneId}
+            locationLabel={locationLabel}
+            onAssignRole={handleAssignRole}
+            onSelectScene={setSelectedSceneId}
+          />
+        }
+        results={<ResultsTable status={viewState} stats={pairStats} channel={channel} />}
+        graph={
+          <TemporalGraph
+            status={viewState}
+            stats={pairStats}
+            channel={channel}
+            view={graphView}
+            onView={setGraphView}
+          />
+        }
+      />
     </div>
   );
 }

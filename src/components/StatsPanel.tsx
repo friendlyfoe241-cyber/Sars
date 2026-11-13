@@ -19,6 +19,9 @@ interface StatsPanelProps {
   dataset: ViewerDataset;
   pol: string;
   summary: ChangeSummary | null;
+  /** the Results table is on screen: link to it instead of repeating the numbers */
+  statsInRow: boolean;
+  onShowResults: () => void;
   ai: AiState;
   onExplain: () => void;
 }
@@ -29,12 +32,24 @@ function formatNumber(n: number, unit: string): string {
   return `${sign}${n.toFixed(1)} ${unit}`;
 }
 
-export default function StatsPanel({ dataset, pol, summary, ai, onExplain }: StatsPanelProps) {
+export default function StatsPanel({ dataset, pol, summary, statsInRow, onShowResults, ai, onExplain }: StatsPanelProps) {
   const has = summary && summary.validPixels > 0;
   const unit = summary?.unit ?? dataset.changeScale.unit;
   return (
     <>
       <Section title="Radar brightness change">
+        {statsInRow ? (
+          <>
+            <p className="orb-note mb-3">
+              after − before · {pol} · {unit}. The statistics are in the Results table, with their method and
+              limitations.
+            </p>
+            <button type="button" className="orb-button orb-button--block" onClick={onShowResults}>
+              Go to Results table
+            </button>
+          </>
+        ) : (
+          <>
         <p className="orb-note mb-3">
           after − before · {pol} · {unit}. Positive and negative values describe the radar signal only.
         </p>
@@ -52,6 +67,8 @@ export default function StatsPanel({ dataset, pol, summary, ai, onExplain }: Sta
           <p className="orb-note mt-2">
             Most of the selected area lies outside this pair's observation footprint.
           </p>
+        )}
+          </>
         )}
       </Section>
 

@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Compass, Layers, LocateFixed, PanelLeft, PanelRight, Sigma } from "lucide-react";
+import { Compass, Layers, LocateFixed, PanelBottom, PanelLeft, PanelRight, Sigma } from "lucide-react";
 import { DESTINATIONS, type Dest } from "../ui/types";
 
 export type ChipTone = "idle" | "busy" | "ok" | "warn" | "error";
@@ -19,6 +19,8 @@ interface TopBarProps {
   onToggleControls: () => void;
   detailsOpen: boolean;
   onToggleDetails: () => void;
+  instrumentsOpen: boolean;
+  onToggleInstruments: () => void;
 }
 
 const ICONS = { explore: Compass, compare: Layers, results: Sigma } as const;
@@ -62,6 +64,8 @@ function TopBar({
   onToggleControls,
   detailsOpen,
   onToggleDetails,
+  instrumentsOpen,
+  onToggleInstruments,
 }: TopBarProps) {
   return (
     <header className="orb-top">
@@ -119,6 +123,16 @@ function TopBar({
             title="Show or hide the observation panel"
           >
             <PanelRight size={18} aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="orb-icon-btn orb-desktop-only"
+            onClick={onToggleInstruments}
+            aria-pressed={instrumentsOpen}
+            aria-label="Show instrument row"
+            title="Show or hide the observations, results and graph row"
+          >
+            <PanelBottom size={18} aria-hidden />
           </button>
         </div>
       </div>
