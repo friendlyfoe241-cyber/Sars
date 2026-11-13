@@ -200,8 +200,23 @@ export default function CompareDivider({
     let dragging = false;
     let pointerId = -1;
     let grab = 0;
-    let draggingWasOn = false;
+    // True only while THIS component has disabled map panning.  Never
+    // overwritten during a drag, so a second pointerdown cannot record the
+    // already-disabled state as the one to restore.
+    let weDisabledPanning = false;
 
+    const restorePanning = () => {
+      if (weDisabledPanning) {
+        weDisabledPanning = false;
+        map.dragging.enable();
+      }
+    };
+    const finish = () => {
+      if (!dragging) return;
+      dragging = false;
+      restorePanning();
+      delete grip.dataset.dragging;
+    };
     const setFromClientX = (clientX: number) => {
       const cr = container.getBoundingClientRect();
       const span = range.right - range.left;
@@ -213,6 +228,7 @@ export default function CompareDivider({
       if (e.button !== 0 && e.pointerType === "mouse") return;
       e.preventDefault();
       e.stopPropagation();
+      if (dragging) return; // a drag is already active: keep its state
       dragging = true;
       pointerId = e.pointerId;
       grip.setPointerCapture(e.pointerId);
@@ -220,12 +236,19 @@ export default function CompareDivider({
       const lineX = range.left + position.current * (range.right - range.left);
       // keep the grab point under the pointer; no jump to the pointer
       grab = Math.max(-GRIP / 2, Math.min(GRIP / 2, e.clientX - cr.left - lineX));
-      draggingWasOn = map.dragging.enabled();
-      if (draggingWasOn) map.dragging.disable();
+      if (map.dragging.enabled()) {
+        map.dragging.disable();
+        weDisabledPanning = true;
+      }
       grip.dataset.dragging = "true";
     };
     const onMove = (e: PointerEvent) => {
       if (!dragging || e.pointerId !== pointerId) return;
+      // the button was released without us seeing pointerup
+      if (e.pointerType === "mouse" && e.buttons === 0) {
+        finish();
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       setFromClientX(e.clientX);
@@ -233,11 +256,11 @@ export default function CompareDivider({
     const end = (e: PointerEvent) => {
       if (!dragging || e.pointerId !== pointerId) return;
       e.stopPropagation();
-      dragging = false;
       if (grip.hasPointerCapture(e.pointerId)) grip.releasePointerCapture(e.pointerId);
-      if (draggingWasOn) map.dragging.enable();
-      draggingWasOn = false;
-      delete grip.dataset.dragging;
+      finish();
+    };
+    const onLost = (e: PointerEvent) => {
+      if (e.pointerId === pointerId) finish();
     };
 
     // ---- keyboard ----
@@ -279,6 +302,7 @@ export default function CompareDivider({
     grip.addEventListener("pointermove", onMove);
     grip.addEventListener("pointerup", end);
     grip.addEventListener("pointercancel", end);
+    grip.addEventListener("lostpointercapture", onLost);
     grip.addEventListener("keydown", onKey);
     grip.addEventListener("keyup", stop);
 
@@ -292,9 +316,11 @@ export default function CompareDivider({
       grip.removeEventListener("pointermove", onMove);
       grip.removeEventListener("pointerup", end);
       grip.removeEventListener("pointercancel", end);
+      grip.removeEventListener("lostpointercapture", onLost);
       grip.removeEventListener("keydown", onKey);
       grip.removeEventListener("keyup", stop);
-      if (draggingWasOn) map.dragging.enable();
+      dragging = false;
+      restorePanning();
       apply.current = () => {};
     };
   }, [map, position]);
