@@ -13,7 +13,7 @@ import type { Aoi } from "../lib/aoi";
 import type { NisarScene } from "../lib/discovery";
 import type { ViewerDataset } from "../lib/data";
 import { changeColour } from "../lib/changeDetection";
-import type { DisplayLayer } from "../lib/useChangeLayers";
+import type { DisplayLayer, DisplayMode, LayerUrls } from "../lib/useChangeLayers";
 
 interface MapViewProps {
   aoi: Aoi | null;
@@ -23,11 +23,14 @@ interface MapViewProps {
   drawMode: boolean;
   onAoiDrawn: (aoi: Aoi) => void;
   onPickLocation: (lat: number, lon: number) => void;
-  layer: DisplayLayer;
+  display: DisplayMode;
   pol: string;
   /** change colour-scale saturation of `pol`; the legend describes this value */
   saturation: number | null;
-  overlayUrl: string | null;
+  /** rendered overlays of the loaded pair and channel, by layer */
+  urls: LayerUrls;
+  /** previous overlay of the same pair and channel while `urls` lacks the requested layer */
+  fallbackUrl: string | null;
   /** grid bounds of the loaded pair (the AOI it was prepared for) */
   overlayBounds: Aoi | null;
   viewer: ViewerDataset | null;
@@ -288,10 +291,11 @@ function MapView({
   drawMode,
   onAoiDrawn,
   onPickLocation,
-  layer,
+  display,
   pol,
   saturation,
-  overlayUrl,
+  urls,
+  fallbackUrl,
   overlayBounds,
   viewer,
   fitKey,
@@ -309,6 +313,11 @@ function MapView({
     [overlayBounds],
   );
   const drawGuard = useRef(0);
+
+  // "swipe" is reserved for the divider and draws no overlay yet; its legend
+  // follows the right-hand layer.
+  const layer: DisplayLayer = display.mode === "single" ? display.layer : display.right;
+  const overlayUrl = display.mode === "single" ? (urls[display.layer] ?? fallbackUrl) : null;
 
   return (
     <div className="relative h-full w-full">

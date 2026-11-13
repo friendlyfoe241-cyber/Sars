@@ -41,7 +41,12 @@ import {
   scenePairId,
   selectionKey,
 } from "./lib/selection";
-import { useChangeLayers, type DisplayLayer } from "./lib/useChangeLayers";
+import {
+  layersForDisplay,
+  useChangeLayers,
+  type DisplayLayer,
+  type DisplayMode,
+} from "./lib/useChangeLayers";
 import {
   IDLE_PAIR,
   deriveViewState,
@@ -146,8 +151,13 @@ export default function App() {
 
   polRef.current = pol;
 
-  const layerRequest = useMemo(() => [layer], [layer]);
-  const { summary, urls, rendering, saturation } = useChangeLayers(activePair, channel, layerRequest);
+  const display = useMemo<DisplayMode>(() => ({ mode: "single", layer }), [layer]);
+  const layerRequest = useMemo(() => layersForDisplay(display), [display]);
+  const { summary, urls, fallbackUrl, rendering, saturation } = useChangeLayers(
+    activePair,
+    channel,
+    layerRequest,
+  );
 
   // Memoised on its real inputs: a fresh object every render would defeat
   // memo() on the panels that receive it.
@@ -675,10 +685,11 @@ export default function App() {
             drawMode={drawMode}
             onAoiDrawn={handleAoiDrawn}
             onPickLocation={handlePickLocation}
-            layer={layer}
+            display={display}
             pol={channel}
             saturation={saturation}
-            overlayUrl={urls[layer] ?? null}
+            urls={urls}
+            fallbackUrl={fallbackUrl}
             overlayBounds={activePair?.bounds ?? null}
             viewer={viewer}
             fitKey={fitKey}
