@@ -1,6 +1,7 @@
 import type { ChangeSummary } from "../lib/changeDetection";
 import type { ViewerDataset } from "../lib/data";
 import { AlertTriangle } from "lucide-react";
+import { formatPlain, formatSigned } from "../lib/format";
 import { KeyRow, Section, Spinner } from "./ui";
 
 export interface AiExplanation {
@@ -27,9 +28,7 @@ interface StatsPanelProps {
 }
 
 function formatNumber(n: number, unit: string): string {
-  if (!Number.isFinite(n)) return "—";
-  const sign = n > 0 ? "+" : "";
-  return `${sign}${n.toFixed(1)} ${unit}`;
+  return Number.isFinite(n) ? `${formatSigned(n)} ${unit}` : "—";
 }
 
 export default function StatsPanel({ dataset, pol, summary, statsInRow, onShowResults, ai, onExplain }: StatsPanelProps) {
@@ -60,7 +59,7 @@ export default function StatsPanel({ dataset, pol, summary, statsInRow, onShowRe
             {has ? `${formatNumber(summary.p25, unit)} to ${formatNumber(summary.p75, unit)}` : "Not calculated"}
           </KeyRow>
           <KeyRow label="Valid pixels">
-            {summary && summary.totalPixels > 0 ? `${(summary.validFraction * 100).toFixed(1)}%` : "Not calculated"}
+            {summary && summary.totalPixels > 0 ? `${formatPlain(summary.validFraction * 100)}%` : "Not calculated"}
           </KeyRow>
         </dl>
         {has && summary.validFraction < 0.2 && (

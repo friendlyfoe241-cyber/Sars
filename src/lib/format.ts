@@ -6,14 +6,17 @@ const MINUS = "−";
 /** One-decimal signed value: "+8.0", "−13.0", "0.0". Non-finite: "—". */
 export function formatSigned(n: number): string {
   if (!Number.isFinite(n)) return "—";
-  const r = Math.round(n * 10) / 10;
-  if (r === 0) return "0.0";
+  // symmetric rounding (half away from zero): -0.25 and +0.25 round alike
+  const r = Math.sign(n) * (Math.round(Math.abs(n) * 10) / 10);
+  if (r === 0) return "0.0"; // never "-0.0" / "−0.0"
   return `${r > 0 ? "+" : MINUS}${Math.abs(r).toFixed(1)}`;
 }
 
 /** One-decimal unsigned value. */
 export function formatPlain(n: number): string {
-  return Number.isFinite(n) ? n.toFixed(1) : "—";
+  if (!Number.isFinite(n)) return "—";
+  const r = Math.sign(n) * (Math.round(Math.abs(n) * 10) / 10);
+  return r === 0 ? "0.0" : `${r < 0 ? MINUS : ""}${Math.abs(r).toFixed(1)}`;
 }
 
 /** Signed integer label for axis ticks: "+20", "−20", "0". */
