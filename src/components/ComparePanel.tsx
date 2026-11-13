@@ -1,10 +1,10 @@
 import type { ViewerDataset } from "../lib/data";
 import { formatAcquisitionTime } from "../lib/data";
-import { Section } from "./ui";
+import { KeyRow, Section, Spinner } from "./ui";
 import type { DisplayLayer } from "../lib/useChangeLayers";
 import type { ChannelStatus } from "../lib/rasterSource";
 
-interface ControlPanelProps {
+interface ComparePanelProps {
   dataset: ViewerDataset;
   /** per-channel load state; only ready channels can be selected */
   channelStatus: Record<string, ChannelStatus>;
@@ -13,6 +13,8 @@ interface ControlPanelProps {
   layer: DisplayLayer;
   onLayerChange: (layer: DisplayLayer) => void;
   computing: boolean;
+  showAllFootprints: boolean;
+  onToggleFootprints: (show: boolean) => void;
 }
 
 const LAYERS: { id: DisplayLayer; label: string }[] = [
@@ -21,7 +23,7 @@ const LAYERS: { id: DisplayLayer; label: string }[] = [
   { id: "change", label: "Change" },
 ];
 
-export default function ControlPanel({
+export default function ComparePanel({
   dataset,
   channelStatus,
   pol,
@@ -29,80 +31,83 @@ export default function ControlPanel({
   layer,
   onLayerChange,
   computing,
-}: ControlPanelProps) {
+  showAllFootprints,
+  onToggleFootprints,
+}: ComparePanelProps) {
   return (
-    <div>
-      <Section title="Acquisition">
-        <dl className="space-y-1.5 text-[12px]">
-          <div className="flex justify-between gap-3">
-            <dt className="text-app-muted">Earlier</dt>
-            <dd className="text-right text-app-text">
-              {formatAcquisitionTime(dataset.earlier.startTime)}
-            </dd>
-          </div>
-          <div className="flex justify-between gap-3">
-            <dt className="text-app-muted">Later</dt>
-            <dd className="text-right text-app-text">
-              {formatAcquisitionTime(dataset.later.startTime)}
-            </dd>
-          </div>
-          <div className="flex justify-between gap-3">
-            <dt className="text-app-muted">Baseline</dt>
-            <dd className="text-right text-app-text">
-              {dataset.temporalBaselineDays} days ·{" "}
-              {(dataset.earlier.flightDirection ?? "").toLowerCase()} ·{" "}
-              {dataset.band}
-            </dd>
-          </div>
-        </dl>
-      </Section>
-
-      <Section title="Polarisation">
-        <select
-          value={pol}
-          onChange={(e) => onPolChange(e.target.value)}
-          className="block w-full rounded-[3px] border border-app-border bg-white px-2 py-1.5 text-[13px] text-app-text focus:border-app-accent focus:outline-none"
-          aria-label="Polarisation channel"
-        >
+    <>
+      <Section title="Radar channel">
+        <div className="orb-segment-group orb-segment-group--fill" role="group" aria-label="Polarisation channel">
           {dataset.polarisations.map((p) => {
             const status = channelStatus[p] ?? "unavailable";
             return (
-              <option key={p} value={p} disabled={status !== "ready"}>
+              <button
+                key={p}
+                type="button"
+                className="orb-segment"
+                aria-pressed={p === pol}
+                disabled={status !== "ready"}
+                onClick={() => onPolChange(p)}
+              >
                 {p}
                 {status === "loading" ? " (loading…)" : status === "unavailable" ? " (unavailable)" : ""}
-              </option>
+              </button>
             );
           })}
-        </select>
+        </div>
+        <p className="orb-note orb-mono mt-2">{dataset.layers[pol] ?? ""}</p>
       </Section>
 
       <Section title="Display layer">
-        <div className="flex overflow-hidden rounded-[3px] border border-app-border">
-          {LAYERS.map((l, i) => (
+        <div className="orb-segment-group orb-segment-group--fill" role="group" aria-label="Display layer">
+          {LAYERS.map((l) => (
             <button
               key={l.id}
               type="button"
+              className="orb-segment"
+              aria-pressed={layer === l.id}
               onClick={() => onLayerChange(l.id)}
-              className={`flex-1 px-2 py-1.5 text-[12px] transition-colors ${
-                i > 0 ? "border-l border-app-border" : ""
-              } ${
-                layer === l.id
-                  ? "bg-app-accent text-white"
-                  : "bg-white text-app-text hover:bg-app-subtle"
-              }`}
             >
               {l.label}
             </button>
           ))}
         </div>
-        <div className="mt-1.5 text-[11px] text-app-muted">
-          {computing
-            ? "Rendering…"
-            : layer === "change"
-              ? `Pixel-level difference in ${dataset.changeScale.unit}`
-              : `Greyscale rendering · ${dataset.encoding.unit}`}
-        </div>
+        <p className="orb-note mt-2 flex items-center gap-2" role="status">
+          {computing ? (
+            <>
+              <Spinner /> Rendering…
+            </>
+          ) : layer === "change" ? (
+            `Radar brightness change · pixel difference in ${dataset.changeScale.unit}`
+          ) : (
+            `Greyscale rendering · ${dataset.encoding.unit}`
+          )}
+        </p>
       </Section>
-    </div>
+
+      <Section title="Acquisition">
+        <dl className="m-0">
+          <KeyRow label="Before">{formatAcquisitionTime(dataset.earlier.startTime)}</KeyRow>
+          <KeyRow label="After">{formatAcquisitionTime(dataset.later.startTime)}</KeyRow>
+          <KeyRow label="Baseline">
+            {dataset.temporalBaselineDays} days · {(dataset.earlier.flightDirection ?? "").toLowerCase()} ·{" "}
+            {dataset.band}
+          </KeyRow>
+        </dl>
+      </Section>
+
+      <Section title="Map">
+        <label className="flex min-h-11 cursor-pointer items-center gap-3 text-[13px]">
+          <input
+            type="checkbox"
+            className="size-4 accent-[var(--orb-accent)]"
+            checked={showAllFootprints}
+            onChange={(e) => onToggleFootprints(e.target.checked)}
+          />
+          <span>Show other catalogue footprints</span>
+        </label>
+        <p className="orb-note">Only the Before and After footprints are drawn while a comparison is loaded.</p>
+      </Section>
+    </>
   );
 }

@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isAbortError } from "./lib/abort";
-import ControlPanel from "./components/ControlPanel";
+import CataloguePanel from "./components/CataloguePanel";
+import ComparePanel from "./components/ComparePanel";
 import MapView from "./components/MapView";
-import ObservationInfo, {
-  type AiExplanation,
-  type AiState,
-} from "./components/ObservationInfo";
-import ResultsPanel from "./components/ResultsPanel";
+import ObservationPanel from "./components/ObservationPanel";
 import SearchPanel from "./components/SearchPanel";
+import StateNotice from "./components/StateNotice";
+import StatsPanel, { type AiExplanation, type AiState } from "./components/StatsPanel";
+import TopBar, { type ChipTone } from "./components/TopBar";
+import { Dock } from "./components/ui";
+import { DESTINATIONS, type Dest } from "./ui/types";
+import { useLayoutMode } from "./ui/useLayoutMode";
 import {
   aoiCenter,
   aoiFromCenter,
@@ -21,6 +24,7 @@ import {
 import {
   datasetStatusLabel,
   datasetStatusNote,
+  formatDate,
   loadManifest,
   type PreparedDataset,
   type ViewerDataset,
@@ -88,6 +92,16 @@ export default function App() {
   // Pairs whose rasters turned out to be unavailable (learned from a failed
   // load); listed as "Metadata only" from then on.
   const [unavailablePairs, setUnavailablePairs] = useState<ReadonlySet<string>>(new Set());
+
+  // ---- shell (presentation only) -------------------------------------
+  const layoutMode = useLayoutMode();
+  const [dest, setDest] = useState<Dest>("explore");
+  const [controlsOpen, setControlsOpen] = useState(true);
+  // The observation panel is open by default except where it is an overlay.
+  const [detailsOpen, setDetailsOpen] = useState(layoutMode !== "mid");
+  useEffect(() => setDetailsOpen(layoutMode !== "mid"), [layoutMode]);
+  // With a pair loaded only its own footprints are drawn unless restored.
+  const [showAllFootprints, setShowAllFootprints] = useState(false);
 
   // ---- viewer --------------------------------------------------------
   const [pol, setPol] = useState("");
@@ -569,133 +583,217 @@ export default function App() {
   }, [viewer, summary, channel, currentSelectionKey]);
 
   const handleToggleDraw = useCallback(() => setDrawMode((d) => !d), []);
+  const handleFit = useCallback(() => setFitKey((k) => k + 1), []);
+  const handleToggleControls = useCallback(() => setControlsOpen((o) => !o), []);
+  const handleToggleDetails = useCallback(() => setDetailsOpen((o) => !o), []);
 
-  const statusChip = viewer
-    ? datasetStatusLabel(viewer.status)
-    : "No comparison loaded";
+  const handleRetryPair = useCallback(() => {
+    if (roleBefore && roleAfter) handleLoadPair(roleBefore, roleAfter);
+  }, [roleBefore, roleAfter, handleLoadPair]);
 
-  return (
-    <div className="flex h-full flex-col">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-app-border bg-app-bg px-4">
-        <div className="text-[13px] font-semibold tracking-[0.01em] text-app-text">
-          NISAR{" "}
-          <span className="font-normal text-app-muted">| Surface Change</span>
-        </div>
-        <span
-          title={viewer ? datasetStatusNote(viewer.status) : "Search for NISAR observations to load a comparison."}
-          className="rounded-[3px] border border-app-border bg-white px-2 py-[3px] text-[11px] text-app-muted"
-        >
-          {statusChip}
-        </span>
-      </header>
+  // A comparison that has just become ready opens the Compare destination.
+  const previousKind = useRef(viewState.kind);
+  useEffect(() => {
+    const was = previousKind.current;
+    const now = viewState.kind;
+    previousKind.current = now;
+    const loaded = (k: string) => k === "ready" || k === "no-valid-pixels";
+    if (loaded(now) && !loaded(was)) setDest("compare");
+  }, [viewState.kind]);
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-[352px] shrink-0 flex-col overflow-y-auto border-r border-app-border bg-app-bg">
-          <SearchPanel
-            onLocationSearch={handleLocationSearch}
-            searchingLocation={searchingLocation}
-            locationLabel={locationLabel}
-            locationError={locationError}
-            aoi={aoi}
-            aoiSizeKm={aoiSizeKm}
-            onAoiSizeChange={handleAoiSizeChange}
-            drawMode={drawMode}
-            onToggleDraw={handleToggleDraw}
-            onSearchData={handleSearchData}
-            searching={searching}
-            exampleLabel={example ? `${example.manifest.studyArea.name}` : null}
-            onExample={handleExample}
-          />
+  // Scenes by role, for the observation panel (stable references).
+  const sceneById = useMemo(() => new Map(scenes.map((sc) => [sc.id, sc])), [scenes]);
+  const beforeScene = (roleBefore && sceneById.get(roleBefore)) || null;
+  const afterScene = (roleAfter && sceneById.get(roleAfter)) || null;
+  const selectedScene = (selectedSceneId && sceneById.get(selectedSceneId)) || null;
 
-          {(searched || searching) && (
-            <ResultsPanel
-              scenes={scenes}
-              pairs={pairs}
-              metadataOnlyPairIds={metadataOnlyPairIds}
-              status={viewState}
-              truncated={truncated}
-              dateFrom={dateFrom}
-              dateTo={dateTo}
-              onApplyDates={handleApplyDates}
-              selectedSceneId={selectedSceneId}
-              onSelectScene={setSelectedSceneId}
-              roleBefore={roleBefore}
-              roleAfter={roleAfter}
-              onAssignRole={handleAssignRole}
-              onLoadPair={handleLoadPair}
-              onLoadSuggested={handleLoadSuggested}
-            />
-          )}
+  // ---- top bar: title, context and status reflect the real selection ---
+  const title = locationLabel || (aoi ? formatAoi(aoi) : "Choose a location");
+  const context = viewer
+    ? `${formatDate(viewer.earlier.startTime)} → ${formatDate(viewer.later.startTime)} · ${channel || "no channel"} · ${viewer.band}`
+    : aoi
+      ? `${formatAoi(aoi)} · no comparison loaded`
+      : "No area selected";
+  let statusLabel = "No comparison loaded";
+  let statusTone: ChipTone = "idle";
+  let statusNote = "Search for NISAR observations to load a comparison.";
+  if (viewer) {
+    statusLabel = datasetStatusLabel(viewer.status);
+    statusTone = viewState.kind === "no-valid-pixels" ? "warn" : "ok";
+    statusNote = datasetStatusNote(viewer.status);
+  } else if (viewState.kind === "searching") {
+    statusLabel = "Searching catalogue";
+    statusTone = "busy";
+  } else if (viewState.kind === "loading-raster") {
+    statusLabel = "Loading comparison";
+    statusTone = "busy";
+  } else if (viewState.kind === "metadata-only") {
+    statusLabel = "Metadata only";
+    statusTone = "warn";
+  } else if (viewState.kind === "error") {
+    statusLabel = "Request failed";
+    statusTone = "error";
+  }
 
-          {viewState.kind === "loading-raster" && (
-            <div className="border-b border-app-border px-4 py-3.5 text-[11px] text-app-muted">
-              Preparing rasters for the selected pair…
-            </div>
-          )}
+  const destLabel = DESTINATIONS.find((d) => d.id === dest)?.label ?? "";
+  const overlayDetails = layoutMode === "wide" || layoutMode === "mid";
+  const notice = (here: Dest) => (
+    <div className="orb-section">
+      <StateNotice
+        state={viewState}
+        here={here}
+        onNavigate={setDest}
+        onRetrySearch={handleSearchData}
+        onRetryPair={handleRetryPair}
+        canRetryPair={Boolean(roleBefore && roleAfter)}
+      />
+    </div>
+  );
 
-          {(viewState.kind === "metadata-only" ||
-            (viewState.kind === "error" && viewState.source === "pair")) && (
-            <div className="border-b border-app-border px-4 py-3.5">
-              <h2 className="text-[11px] font-medium tracking-[0.06em] text-app-muted uppercase">
-                Comparison status
-              </h2>
-              <p className="mt-2 text-[11px] leading-[1.5] text-app-text">
-                {viewState.message}
-              </p>
-            </div>
-          )}
-
-          {(viewState.kind === "ready" || viewState.kind === "no-valid-pixels") && (
-            <>
-              {viewState.kind === "no-valid-pixels" && (
-                <div className="border-b border-app-border px-4 py-3.5 text-[11px] leading-[1.5] text-app-text">
-                  No pixel is valid in both observations for this area and
-                  channel, so no difference is calculated.
-                </div>
-              )}
-              <ControlPanel
-                dataset={viewState.dataset.viewer}
-                channelStatus={viewState.dataset.channelStatus}
-                pol={channel}
-                onPolChange={setPol}
-                layer={layer}
-                onLayerChange={setLayer}
-                computing={rendering}
-              />
-              <ObservationInfo
-                dataset={viewState.dataset.viewer}
-                pol={channel}
-                summary={summary}
-                ai={ai}
-                onExplain={handleExplain}
-              />
-              <div className="mt-auto px-4 py-3 text-[10px] leading-[1.5] text-app-muted">
-                {viewState.dataset.viewer.limitations[0]}
-              </div>
-            </>
-          )}
-        </aside>
-
-        <main className="relative min-w-0 flex-1">
-          <MapView
-            aoi={aoi}
+  let controls;
+  if (dest === "explore") {
+    controls = (
+      <>
+        {notice("explore")}
+        <SearchPanel
+          onLocationSearch={handleLocationSearch}
+          searchingLocation={searchingLocation}
+          locationLabel={locationLabel}
+          locationError={locationError}
+          aoi={aoi}
+          aoiSizeKm={aoiSizeKm}
+          onAoiSizeChange={handleAoiSizeChange}
+          drawMode={drawMode}
+          onToggleDraw={handleToggleDraw}
+          onSearchData={handleSearchData}
+          searching={searching}
+          exampleLabel={example ? `${example.manifest.studyArea.name}` : null}
+          onExample={handleExample}
+        />
+        {(searched || searching) && (
+          <CataloguePanel
             scenes={scenes}
+            pairs={pairs}
+            metadataOnlyPairIds={metadataOnlyPairIds}
+            status={viewState}
+            truncated={truncated}
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onApplyDates={handleApplyDates}
             selectedSceneId={selectedSceneId}
             onSelectScene={setSelectedSceneId}
-            drawMode={drawMode}
-            onAoiDrawn={handleAoiDrawn}
-            onPickLocation={handlePickLocation}
-            display={display}
-            pol={channel}
-            saturation={saturation}
-            urls={urls}
-            fallbackUrl={fallbackUrl}
-            overlayBounds={activePair?.bounds ?? null}
-            viewer={viewer}
-            fitKey={fitKey}
+            roleBefore={roleBefore}
+            roleAfter={roleAfter}
+            onAssignRole={handleAssignRole}
+            onLoadPair={handleLoadPair}
+            onLoadSuggested={handleLoadSuggested}
           />
-        </main>
-      </div>
+        )}
+      </>
+    );
+  } else if (viewState.kind === "ready" || viewState.kind === "no-valid-pixels") {
+    controls = (
+      <>
+        {viewState.kind === "no-valid-pixels" && notice(dest)}
+        {dest === "compare" ? (
+          <ComparePanel
+            dataset={viewState.dataset.viewer}
+            channelStatus={viewState.dataset.channelStatus}
+            pol={channel}
+            onPolChange={setPol}
+            layer={layer}
+            onLayerChange={setLayer}
+            computing={rendering}
+            showAllFootprints={showAllFootprints}
+            onToggleFootprints={setShowAllFootprints}
+          />
+        ) : (
+          <StatsPanel
+            dataset={viewState.dataset.viewer}
+            pol={channel}
+            summary={summary}
+            ai={ai}
+            onExplain={handleExplain}
+          />
+        )}
+      </>
+    );
+  } else {
+    controls = notice(dest);
+  }
+
+  return (
+    <div className="orbital-theme orb-shell" data-details={detailsOpen ? "open" : "closed"}>
+      <MapView
+        aoi={aoi}
+        scenes={scenes}
+        selectedSceneId={selectedSceneId}
+        onSelectScene={setSelectedSceneId}
+        drawMode={drawMode}
+        onAoiDrawn={handleAoiDrawn}
+        onPickLocation={handlePickLocation}
+        display={display}
+        pol={channel}
+        saturation={saturation}
+        urls={urls}
+        fallbackUrl={fallbackUrl}
+        overlayBounds={activePair?.bounds ?? null}
+        viewer={viewer}
+        fitKey={fitKey}
+        roleBefore={roleBefore}
+        roleAfter={roleAfter}
+        showAllFootprints={showAllFootprints}
+      />
+
+      <TopBar
+        dest={dest}
+        onDest={setDest}
+        title={title}
+        context={context}
+        statusLabel={statusLabel}
+        statusTone={statusTone}
+        statusNote={statusNote}
+        canFit={aoi !== null}
+        onFit={handleFit}
+        controlsOpen={controlsOpen}
+        onToggleControls={handleToggleControls}
+        detailsOpen={detailsOpen}
+        onToggleDetails={handleToggleDetails}
+      />
+
+      <Dock
+        id="controls"
+        className="orb-left"
+        eyebrow="Controls"
+        title={destLabel}
+        collapsed={!controlsOpen}
+        onToggle={handleToggleControls}
+      >
+        {controls}
+      </Dock>
+
+      <Dock
+        id="observation"
+        className="orb-right"
+        eyebrow="Details"
+        title="Observation"
+        collapsed={overlayDetails ? false : !detailsOpen}
+        onToggle={handleToggleDetails}
+        hidden={overlayDetails && !detailsOpen}
+      >
+        <ObservationPanel
+          viewer={viewer}
+          pol={channel}
+          beforeScene={beforeScene}
+          afterScene={afterScene}
+          selectedScene={selectedScene}
+          locationLabel={locationLabel}
+        />
+      </Dock>
+
+      {/* Reserved grid area for the later instrument row (observations table,
+          results table, time series). Empty on purpose. */}
+      <div className="orb-bottom" aria-hidden />
     </div>
   );
 }

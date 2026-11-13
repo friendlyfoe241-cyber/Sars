@@ -12,8 +12,8 @@ import {
 import type { Aoi } from "../lib/aoi";
 import type { NisarScene } from "../lib/discovery";
 import type { ViewerDataset } from "../lib/data";
-import { changeColour } from "../lib/changeDetection";
 import type { DisplayLayer, DisplayMode, LayerUrls } from "../lib/useChangeLayers";
+import MapLegend from "./MapLegend";
 
 interface MapViewProps {
   aoi: Aoi | null;
@@ -36,9 +36,23 @@ interface MapViewProps {
   viewer: ViewerDataset | null;
   /** bump to re-fit the map to the AOI */
   fitKey: number;
+  /** before / after scene ids of the loaded pair (footprints kept visible) */
+  roleBefore: string | null;
+  roleAfter: string | null;
+  /** with a pair loaded: also draw the non-selected catalogue footprints */
+  showAllFootprints: boolean;
   /** limit drawn footprints for performance */
   maxFootprints?: number;
 }
+
+// Dark basemap: CARTO "dark_all" raster tiles.  Both can be overridden at build
+// time (VITE_BASEMAP_URL / VITE_BASEMAP_ATTRIBUTION), e.g. for a CARTO plan
+// that needs an API key.
+const BASEMAP_URL: string =
+  import.meta.env.VITE_BASEMAP_URL || "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+const BASEMAP_ATTRIBUTION: string =
+  import.meta.env.VITE_BASEMAP_ATTRIBUTION ||
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
 function boundsOf(aoi: Aoi): L.LatLngBoundsExpression {
   return [
@@ -52,7 +66,19 @@ function FitController({ aoi, fitKey }: { aoi: Aoi | null; fitKey: number }) {
   const map = useMap();
   useEffect(() => {
     if (!aoi) return;
-    map.fitBounds(boundsOf(aoi), { padding: [32, 32], maxZoom: 10 });
+    // Keep the AOI clear of the floating panels: the shell publishes the
+    // per-breakpoint insets as CSS custom properties.
+    const shell = map.getContainer().closest(".orb-shell");
+    const cs = shell ? getComputedStyle(shell) : null;
+    const inset = (name: string) => Number.parseFloat(cs?.getPropertyValue(name) ?? "") || 12;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    map.fitBounds(boundsOf(aoi), {
+      paddingTopLeft: [inset("--orb-fit-left"), inset("--orb-fit-top")],
+      paddingBottomRight: [inset("--orb-fit-right"), inset("--orb-fit-bottom")],
+      maxZoom: 10,
+      animate: !reduceMotion,
+      duration: 0.45,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitKey]);
   return null;
@@ -98,7 +124,7 @@ function AoiDrawer({
       start = e.latlng;
       rectRef.current = L.rectangle(
         L.latLngBounds(start, start),
-        { color: "#2563EB", weight: 1.5, dashArray: "4 3", fillOpacity: 0.05 },
+        { color: ORBITAL.accent, weight: 2, dashArray: "4 3", fill: false },
       ).addTo(map);
     };
     const onMouseMove = (e: L.LeafletMouseEvent) => {
@@ -139,75 +165,6 @@ function AoiDrawer({
   return null;
 }
 
-function Legend({
-  viewer,
-  layer,
-  pol,
-  saturation,
-}: {
-  viewer: ViewerDataset;
-  layer: DisplayLayer;
-  pol: string;
-  saturation: number | null;
-}) {
-  if (layer === "change" && saturation === null) return null;
-  const unit = layer === "change" ? viewer.changeScale.unit : viewer.encoding.unit;
-
-  return (
-    <div className="absolute top-3 right-3 z-[500] w-[200px] rounded-[3px] border border-app-border bg-white px-3 py-2.5">
-      <div className="text-[11px] font-semibold text-app-text">
-        {layer === "change" ? "Backscatter change" : "Radar brightness"}
-      </div>
-      <div className="mt-0.5 text-[10px] text-app-muted">
-        {layer === "change"
-          ? `after − before · ${pol}`
-          : `${pol} · ${viewer.layers[pol] ?? ""}`}
-      </div>
-
-      {layer === "change" ? (
-        <>
-          <div className="mt-2 flex h-2.5">
-            {[-1, -2 / 3, -1 / 3, 0, 1 / 3, 2 / 3, 1].map((t, i) => (
-              <div
-                key={i}
-                className="flex-1"
-                style={{
-                  backgroundColor: `rgb(${changeColour(t * saturation!, saturation!).join(",")})`,
-                }}
-              />
-            ))}
-          </div>
-          <div className="mt-1 flex justify-between text-[10px] text-app-muted">
-            <span>−{saturation}</span>
-            <span>0</span>
-            <span>+{saturation}</span>
-          </div>
-          <div className="mt-0.5 text-[10px] text-app-muted">
-            {unit} · decrease / increase
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="mt-2 flex h-2.5">
-            {[8, 60, 112, 164, 216, 255].map((v) => (
-              <div
-                key={v}
-                className="flex-1"
-                style={{ backgroundColor: `rgb(${v},${v},${v})` }}
-              />
-            ))}
-          </div>
-          <div className="mt-1 flex justify-between text-[10px] text-app-muted">
-            <span>low</span>
-            <span>high</span>
-          </div>
-          <div className="mt-0.5 text-[10px] text-app-muted">{unit}</div>
-        </>
-      )}
-    </div>
-  );
-}
-
 function ScaleBar() {
   const map = useMap();
   useEffect(() => {
@@ -224,27 +181,34 @@ function ScaleBar() {
   return null;
 }
 
+// Leaflet paths take literal colours (canvas renderer), so these mirror the
+// ORBITAL tokens in styles/orbital.css: --orb-accent, --orb-focus, --orb-text.
+const ORBITAL = { accent: "#FF6A00", focus: "#8DDCFF", text: "#F5F7FA" } as const;
+
+// Quiet, thin catalogue footprints; the selected one reads in the focus cyan.
 const FOOTPRINT_STYLE: L.PathOptions = {
-  color: "#2563EB",
+  color: ORBITAL.text,
   weight: 1,
-  opacity: 0.35,
-  fillColor: "#2563EB",
+  opacity: 0.2,
   fill: false,
   fillOpacity: 0,
 };
 const FOOTPRINT_SELECTED_STYLE: L.PathOptions = {
-  ...FOOTPRINT_STYLE,
-  weight: 2,
-  opacity: 1,
+  color: ORBITAL.focus,
+  weight: 1.5,
+  opacity: 0.95,
   fill: true,
-  fillOpacity: 0.12,
+  fillColor: ORBITAL.focus,
+  fillOpacity: 0.06,
 };
+// Selected AOI: orange outline, no visible fill over the data (the invisible
+// fill keeps clicks inside the rectangle behaving as before).
 const AOI_STYLE: L.PathOptions = {
-  color: "#2563EB",
+  color: ORBITAL.accent,
   weight: 2,
   fill: true,
-  fillColor: "#2563EB",
-  fillOpacity: 0.03,
+  fillColor: ORBITAL.accent,
+  fillOpacity: 0,
 };
 
 /**
@@ -299,12 +263,21 @@ function MapView({
   overlayBounds,
   viewer,
   fitKey,
+  roleBefore,
+  roleAfter,
+  showAllFootprints,
   maxFootprints = 200,
 }: MapViewProps) {
-  const shown = useMemo(
-    () => scenes.slice(0, maxFootprints).filter((s) => s.footprint.length >= 3),
-    [scenes, maxFootprints],
-  );
+  // Once a pair is loaded only the selected footprints stay (quiet map);
+  // a labelled toggle in Compare restores the rest.
+  const pairLoaded = viewer !== null;
+  const shown = useMemo(() => {
+    const drawable = scenes.slice(0, maxFootprints).filter((s) => s.footprint.length >= 3);
+    if (!pairLoaded || showAllFootprints) return drawable;
+    return drawable.filter(
+      (s) => s.id === roleBefore || s.id === roleAfter || s.id === selectedSceneId,
+    );
+  }, [scenes, maxFootprints, pairLoaded, showAllFootprints, roleBefore, roleAfter, selectedSceneId]);
   // Stable bounds objects: react-leaflet re-applies bounds whenever the prop
   // identity changes.
   const aoiBounds = useMemo(() => (aoi ? boundsOf(aoi) : null), [aoi]);
@@ -320,7 +293,7 @@ function MapView({
   const overlayUrl = display.mode === "single" ? (urls[display.layer] ?? fallbackUrl) : null;
 
   return (
-    <div className="relative h-full w-full">
+    <div className="orb-map">
       <MapContainer
         center={[20, 15]}
         zoom={2}
@@ -329,11 +302,13 @@ function MapView({
         preferCanvas={true}
         zoomControl={true}
         attributionControl={true}
-        className="h-full w-full"
+        className="orb-leaflet"
       >
         <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url={BASEMAP_URL}
+          subdomains="abcd"
+          maxZoom={20}
+          attribution={BASEMAP_ATTRIBUTION}
         />
 
         {overlayUrl && imageBounds && (
@@ -361,12 +336,10 @@ function MapView({
         <FitController aoi={aoi} fitKey={fitKey} />
         <ScaleBar />
       </MapContainer>
-      {viewer && <Legend viewer={viewer} layer={layer} pol={pol} saturation={saturation} />}
+      {viewer && <MapLegend viewer={viewer} layer={layer} pol={pol} saturation={saturation} />}
       {drawMode && (
-        <div className="absolute inset-x-0 top-3 z-[500] flex justify-center">
-          <div className="rounded-[3px] border border-app-border bg-white px-3 py-1.5 text-[11px] text-app-text">
-            Drag on the map to draw the area of interest
-          </div>
+        <div className="orb-panel orb-panel--glass orb-hint" role="status">
+          Drag on the map to draw the area of interest
         </div>
       )}
     </div>
