@@ -160,7 +160,7 @@
   border-radius: 999px;
   background: transparent;
   color: var(--vx-text-muted);
-  font: 400 12.5px/1 var(--vx-font-display);
+  font: 500 12.5px/1 var(--vx-font-display);
   cursor: pointer;
   transition: background 0.2s ease;
 }

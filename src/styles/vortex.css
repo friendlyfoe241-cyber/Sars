@@ -32,7 +32,8 @@
   --vx-data-decrease: #68c5eb;
   --vx-data-neutral: #bec9d2;
   --vx-data-increase: #f3b85a;
-  --vx-font-display: "Metamorphous", "Sora Variable", serif;
+  /* the workspace display face; .vx-hero (index.css) swaps in Metamorphous */
+  --vx-font-display: "Sora Variable", "Sora", ui-sans-serif, system-ui, sans-serif;
   --vx-font-body: "Sora Variable", "Sora", ui-sans-serif, system-ui, sans-serif;
   /* numbers and dates stay in Sora with tabular figures; real monospace is
      only used for product ids (Tailwind font-mono). */
@@ -53,8 +54,8 @@
   font-variant-numeric: tabular-nums;
 }
 .vx-eyebrow {
-  font: 400 11px/16px var(--vx-font-display);
-  letter-spacing: 0.14em;
+  font: 600 11px/16px var(--vx-font-display);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--vx-flare);
 }
@@ -76,7 +77,7 @@
   background: rgba(255, 255, 255, 0.09);
   box-shadow: inset 1.5px 1.5px 0 rgba(255, 255, 255, 0.3);
   color: var(--vx-text);
-  font: 400 14px/1.2 var(--vx-font-display);
+  font: 500 14px/1.2 var(--vx-font-display);
   cursor: pointer;
   transition:
     background 0.2s ease,
@@ -249,8 +250,8 @@
   justify-content: space-between;
   gap: 8px;
   margin: 0 0 10px;
-  font: 400 12px/16px var(--vx-font-display);
-  letter-spacing: 0.14em;
+  font: 600 11px/16px var(--vx-font-display);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--vx-flare);
 }
@@ -371,7 +372,7 @@
 }
 .vx-notice h3 {
   margin: 0;
-  font: 400 15px/22px var(--vx-font-display);
+  font: 600 14px/20px var(--vx-font-display);
 }
 .vx-notice p {
   margin: 0;

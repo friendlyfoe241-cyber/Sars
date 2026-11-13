@@ -29,7 +29,8 @@
   --color-app-nebula: #9d74f0;
   --font-sans: "Sora Variable", "Sora", ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", sans-serif;
-  --font-display: "Metamorphous", "Sora Variable", serif;
+  /* Sora everywhere; Metamorphous only under the hero (.vx-hero, below) */
+  --font-display: "Sora Variable", "Sora", ui-sans-serif, system-ui, sans-serif;
 }
 
 @theme inline {
@@ -72,8 +73,8 @@
     overflow: hidden;
   }
 
-  /* Metamorphous carries headings, section titles and buttons; Sora stays on
-     dense data text and numbers (tabular figures, readable at 10-12 px). */
+  /* Headings and buttons use the display face: Sora in the workspace,
+     Metamorphous on the hero only (it is scoped there, not overridden). */
   h1,
   h2,
   h3,
@@ -81,6 +82,21 @@
   .font-display {
     font-family: var(--font-display);
     font-synthesis-weight: none;
+  }
+  h1,
+  h2,
+  h3 {
+    font-weight: 600;
+  }
+  button {
+    font-weight: 500;
+  }
+  .vx-hero {
+    --font-display: "Metamorphous", "Sora Variable", serif;
+    --vx-font-display: "Metamorphous", "Sora Variable", serif;
+  }
+  /* Metamorphous has a single weight */
+  .vx-hero :is(h1, h2, h3, button, .font-display) {
     font-weight: 400;
   }
   .tabular-nums,

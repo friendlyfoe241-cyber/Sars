@@ -87,7 +87,7 @@
   border-radius: 999px;
   background: transparent;
   color: var(--vx-text-muted);
-  font: 400 13px/1 var(--vx-font-display);
+  font: 500 13px/1 var(--vx-font-display);
   cursor: pointer;
 }
 .vx-instr__tab:hover {
