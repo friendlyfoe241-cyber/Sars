@@ -1,0 +1,86 @@
+/* Leaflet's own controls, restyled to ORBITAL: square, 1px borders, tokens.
+   Leaflet's stylesheet is imported into the `leaflet` layer (see index.css),
+   which sits below `components`, so plain selectors are enough here. */
+
+.leaflet-container {
+  background: var(--orb-bg);
+  font-family: var(--orb-font-body);
+  font-size: 12px;
+  color: var(--orb-text);
+}
+
+/* zoom */
+.leaflet-bar {
+  border: 1px solid var(--orb-border) !important;
+  border-radius: 0 !important;
+  box-shadow: var(--orb-shadow) !important;
+}
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  width: 44px;
+  height: 44px;
+  line-height: 42px;
+  border-radius: 0 !important;
+  border-bottom: 1px solid var(--orb-border);
+  background-color: var(--orb-glass);
+  color: var(--orb-text);
+  font: 400 20px/42px var(--orb-font-body);
+}
+.leaflet-bar a:hover { background-color: var(--orb-surface-hover); }
+.leaflet-bar a:last-child { border-bottom: 0; }
+.leaflet-bar a.leaflet-disabled {
+  background-color: var(--orb-surface);
+  color: var(--orb-text-subtle);
+}
+.leaflet-container a:focus-visible,
+.leaflet-bar a:focus-visible {
+  outline: 2px solid var(--orb-focus);
+  outline-offset: -2px;
+}
+
+/* scale */
+.leaflet-control-scale-line {
+  padding: 1px 6px;
+  border: 1px solid var(--orb-text-muted);
+  border-top: 0;
+  background: color-mix(in srgb, var(--orb-bg) 78%, transparent);
+  color: var(--orb-text);
+  font: 400 11px/16px var(--orb-font-mono);
+  text-shadow: none;
+}
+
+/* attribution: kept legible */
+.leaflet-control-attribution {
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--orb-bg) 82%, transparent) !important;
+  color: var(--orb-text-muted);
+  font: 400 11px/16px var(--orb-font-body);
+}
+.leaflet-control-attribution a {
+  color: var(--orb-text);
+  text-decoration: underline;
+  text-decoration-color: var(--orb-control-border);
+  text-underline-offset: 2px;
+}
+.leaflet-control-attribution a:hover { text-decoration-color: var(--orb-text); }
+
+/* placement: zoom beside the left dock, bottom controls above the reserved
+   bottom row so the later instrument row never covers them */
+.leaflet-bottom { bottom: var(--orb-bottom-inset, 0); }
+.leaflet-top.leaflet-left { margin: 12px 0 0 12px; }
+
+@media (min-width: 1024px) {
+  .leaflet-top.leaflet-left {
+    top: 50%;
+    left: var(--orb-map-left);
+    margin: 0;
+    transform: translateY(-50%);
+  }
+  .leaflet-bottom.leaflet-left .leaflet-control { margin-left: 16px; margin-bottom: 4px; }
+  .leaflet-bottom.leaflet-right .leaflet-control { margin-right: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .leaflet-fade-anim .leaflet-tile,
+  .leaflet-zoom-anim .leaflet-zoom-animated { transition: none !important; }
+}

@@ -144,13 +144,16 @@ export function computeSaturation(
   return Math.max(1, Math.round(p98 * 2) / 2);
 }
 
-const NEUTRAL = [255, 255, 255] as const;
-const NEGATIVE = [37, 99, 235] as const; // #2563EB
-const POSITIVE = [194, 65, 12] as const; // #C2410C
+// ORBITAL diverging scale centred on zero (design system "scientific
+// visualisation language"): decrease cyan, no difference neutral grey,
+// increase amber.  Keep in step with --orb-data-* in styles/orbital.css.
+const NEUTRAL = [190, 201, 210] as const; // #BEC9D2
+const NEGATIVE = [104, 197, 235] as const; // #68C5EB
+const POSITIVE = [243, 184, 90] as const; // #F3B85A
 
 /**
- * Diverging colour scale: decrease -> blue, neutral -> white, increase ->
- * orange-red.  Colours are interpolated linearly in RGB; no smoothing.
+ * Diverging colour scale: decrease -> cyan, zero -> neutral grey, increase ->
+ * amber.  Colours are interpolated linearly in RGB; no smoothing.
  */
 export function changeColour(delta: number, saturation: number): [number, number, number] {
   const t = Math.max(-1, Math.min(1, delta / saturation));
