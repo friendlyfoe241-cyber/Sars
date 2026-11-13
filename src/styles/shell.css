@@ -640,3 +640,18 @@
      for both of them either side of a centred divider */
   .orb-compare__date span { display: block; }
 }
+
+/* Status chip: between 1024 and 1199 the top bar is tight, so the chip keeps
+   its dot (colour = state) and moves the text into the tooltip.  The label
+   stays in the DOM, visually hidden, so the status is still announced. */
+@media (min-width: 1024px) and (max-width: 1199px) {
+  .orb-chip:not(.orb-chip--inline) { padding: 4px 11px; }
+  .orb-chip:not(.orb-chip--inline) > span:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}

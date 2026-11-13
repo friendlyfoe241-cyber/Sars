@@ -38,7 +38,7 @@ function StatusChip({
     <span
       className={`orb-chip${inline ? " orb-chip--inline" : ""}`}
       data-tone={tone}
-      title={note}
+      title={`${label}. ${note}`}
       role={inline ? undefined : "status"}
       aria-hidden={inline ? true : undefined}
     >

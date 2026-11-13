@@ -90,16 +90,17 @@ export default function SearchPanel({
               setQuery(exampleLabel);
               onExample();
             }}
-            className="orb-button orb-button--ghost orb-button--compact mt-2 !px-2"
+            className="orb-button orb-button--ghost orb-button--compact mt-2 !h-auto !justify-start !px-2 !py-2 text-left"
           >
-            <Crosshair size={14} aria-hidden /> Example: {exampleLabel}
+            <Crosshair size={14} aria-hidden className="shrink-0" />
+            <span>Example: {exampleLabel}</span>
           </button>
         )}
       </Section>
 
       <Section title="Area of interest">
-        <div className="flex gap-2">
-          <div className="w-[108px] shrink-0">
+        <div className="flex flex-wrap gap-2">
+          <div className="w-[128px] shrink-0">
             <label htmlFor="orb-aoi-size" className="orb-label">
               Size
             </label>
@@ -117,7 +118,7 @@ export default function SearchPanel({
               ))}
             </select>
           </div>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-[112px] flex-1">
             <span className="orb-label">Custom area</span>
             <button
               type="button"
