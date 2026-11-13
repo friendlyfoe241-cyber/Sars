@@ -1,8 +1,10 @@
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import L from "leaflet";
 import {
   MapContainer,
   TileLayer,
+  Pane,
   Rectangle,
   Polygon,
   ImageOverlay,
@@ -45,14 +47,91 @@ interface MapViewProps {
   maxFootprints?: number;
 }
 
-// Dark basemap: CARTO "dark_all" raster tiles.  Both can be overridden at build
-// time (VITE_BASEMAP_URL / VITE_BASEMAP_ATTRIBUTION), e.g. for a CARTO plan
-// that needs an API key.
-const BASEMAP_URL: string =
-  import.meta.env.VITE_BASEMAP_URL || "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
-const BASEMAP_ATTRIBUTION: string =
-  import.meta.env.VITE_BASEMAP_ATTRIBUTION ||
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+// Basemaps.  Both are keyless raster sources that send CORS headers.
+//   Earth      NASA GIBS Blue Marble (default).  Native tiles stop at zoom 8;
+//              deeper map zooms upscale them.  Dimmed for the dark theme by a
+//              CSS filter on its own pane only (see leaflet.css), so the radar
+//              overlay is never filtered.
+//   Reference  Esri World Dark Gray base plus its reference-label layer.
+// VITE_BASEMAP_URL / VITE_BASEMAP_ATTRIBUTION replace the whole choice with a
+// single custom tile source (not filtered; pass tiles that are already dark).
+const CUSTOM_BASEMAP_URL: string = import.meta.env.VITE_BASEMAP_URL || "";
+const CUSTOM_BASEMAP_ATTRIBUTION: string = import.meta.env.VITE_BASEMAP_ATTRIBUTION || "";
+
+type BasemapId = "earth" | "reference";
+
+const BASEMAPS: Record<
+  BasemapId,
+  {
+    label: string;
+    url: string;
+    maxNativeZoom: number;
+    attribution: string;
+    labelsUrl?: string;
+  }
+> = {
+  earth: {
+    label: "Earth",
+    url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg",
+    maxNativeZoom: 8,
+    attribution:
+      '<a href="https://earthdata.nasa.gov/gibs">NASA EOSDIS GIBS</a> &middot; Blue Marble',
+  },
+  reference: {
+    label: "Reference",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+    labelsUrl:
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+    maxNativeZoom: 16,
+    attribution: "Esri, HERE, Garmin, &copy; OpenStreetMap contributors, and the GIS user community",
+  },
+};
+
+const BASEMAP_IDS: BasemapId[] = ["earth", "reference"];
+
+/** Labelled Earth / Reference switch, placed under Leaflet's zoom buttons. */
+function BasemapControl({
+  value,
+  onChange,
+}: {
+  value: BasemapId;
+  onChange: (id: BasemapId) => void;
+}) {
+  const map = useMap();
+  const [container] = useState(() => {
+    const el = L.DomUtil.create("div", "leaflet-control orb-basemap-switch");
+    L.DomEvent.disableClickPropagation(el);
+    L.DomEvent.disableScrollPropagation(el);
+    return el;
+  });
+  useEffect(() => {
+    const control = new L.Control({ position: "topleft" });
+    control.onAdd = () => container;
+    control.addTo(map);
+    return () => {
+      control.remove();
+    };
+  }, [map, container]);
+  return createPortal(
+    <div role="group" aria-label="Basemap">
+      <div className="orb-eyebrow orb-basemap-switch__label">Basemap</div>
+      <div className="orb-basemap-switch__buttons">
+        {BASEMAP_IDS.map((id) => (
+          <button
+            key={id}
+            type="button"
+            className="orb-basemap-switch__btn"
+            aria-pressed={value === id}
+            onClick={() => onChange(id)}
+          >
+            {BASEMAPS[id].label}
+          </button>
+        ))}
+      </div>
+    </div>,
+    container,
+  );
+}
 
 function boundsOf(aoi: Aoi): L.LatLngBoundsExpression {
   return [
@@ -286,6 +365,8 @@ function MapView({
     [overlayBounds],
   );
   const drawGuard = useRef(0);
+  const [basemapId, setBasemapId] = useState<BasemapId>("earth");
+  const basemap = BASEMAPS[basemapId];
 
   // "swipe" is reserved for the divider and draws no overlay yet; its legend
   // follows the right-hand layer.
@@ -304,12 +385,42 @@ function MapView({
         attributionControl={true}
         className="orb-leaflet"
       >
-        <TileLayer
-          url={BASEMAP_URL}
-          subdomains="abcd"
-          maxZoom={20}
-          attribution={BASEMAP_ATTRIBUTION}
-        />
+        {CUSTOM_BASEMAP_URL ? (
+          <Pane name="orbBasemap" style={{ zIndex: 200 }}>
+            <TileLayer
+              url={CUSTOM_BASEMAP_URL}
+              subdomains="abcd"
+              maxZoom={20}
+              attribution={CUSTOM_BASEMAP_ATTRIBUTION}
+            />
+          </Pane>
+        ) : (
+          <>
+            {/* own pane: the dimming filter in leaflet.css targets it alone */}
+            <Pane
+              key={basemapId}
+              name="orbBasemap"
+              className={`orb-pane-basemap orb-pane-basemap--${basemapId}`}
+              style={{ zIndex: 200 }}
+            >
+              <TileLayer
+                url={basemap.url}
+                maxNativeZoom={basemap.maxNativeZoom}
+                maxZoom={14}
+                attribution={basemap.attribution}
+              />
+            </Pane>
+            {basemap.labelsUrl && (
+              <Pane key={`${basemapId}-labels`} name="orbLabels" style={{ zIndex: 450 }}>
+                <TileLayer
+                  url={basemap.labelsUrl}
+                  maxNativeZoom={basemap.maxNativeZoom}
+                  maxZoom={14}
+                />
+              </Pane>
+            )}
+          </>
+        )}
 
         {overlayUrl && imageBounds && (
           <ImageOverlay
@@ -335,6 +446,7 @@ function MapView({
         <AoiDrawer enabled={drawMode} onAoiDrawn={onAoiDrawn} drawGuard={drawGuard} />
         <FitController aoi={aoi} fitKey={fitKey} />
         <ScaleBar />
+        {!CUSTOM_BASEMAP_URL && <BasemapControl value={basemapId} onChange={setBasemapId} />}
       </MapContainer>
       {viewer && <MapLegend viewer={viewer} layer={layer} pol={pol} saturation={saturation} />}
       {drawMode && (

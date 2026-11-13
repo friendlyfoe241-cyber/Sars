@@ -84,3 +84,33 @@
   .leaflet-fade-anim .leaflet-tile,
   .leaflet-zoom-anim .leaflet-zoom-animated { transition: none !important; }
 }
+
+/* basemap: dimmed on its own pane only; the radar overlay pane is never
+   filtered.  Earth reads as dusk on the night side rather than a bright atlas. */
+.leaflet-pane.orb-pane-basemap--earth { filter: brightness(0.56) saturate(0.85); }
+.leaflet-pane.orb-pane-basemap--reference { filter: brightness(0.92); }
+
+/* basemap switch, stacked under the zoom buttons */
+.orb-basemap-switch {
+  margin-top: 8px !important;
+  border: 1px solid var(--orb-border);
+  background: var(--orb-glass);
+  box-shadow: var(--orb-shadow);
+  padding: 8px 8px 4px;
+}
+.orb-basemap-switch__label { margin-bottom: 4px; }
+.orb-basemap-switch__buttons { display: flex; gap: 4px; padding-bottom: 4px; }
+.orb-basemap-switch__btn {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  background: var(--orb-surface-raised);
+  color: var(--orb-text-muted);
+  font: 500 12px/16px var(--orb-font-mono);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background var(--orb-duration-fast) var(--orb-ease);
+}
+.orb-basemap-switch__btn:hover { background: var(--orb-surface-hover); color: var(--orb-text); }
+.orb-basemap-switch__btn[aria-pressed="true"] { background: var(--orb-accent); color: var(--orb-on-accent); }
+.orb-basemap-switch__btn:focus-visible { outline: 2px solid var(--orb-focus); outline-offset: 2px; }
