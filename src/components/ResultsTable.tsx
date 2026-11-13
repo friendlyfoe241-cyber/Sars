@@ -27,18 +27,11 @@ function Message({ busy, children }: { busy?: boolean; children: string }) {
   );
 }
 
-function Value({ children, unit }: { children: ReactNode; unit: string }) {
-  return (
-    <>
-      <span>{children}</span> <span className="orb-itable__unit">{unit}</span>
-    </>
-  );
-}
-
 interface Row {
   key: string;
   label: string;
-  value: (c: ChannelStats, unit: string) => ReactNode;
+  /** the value cell; the unit of the difference rows is in the column header */
+  value: (c: ChannelStats) => ReactNode;
   note: string;
 }
 
@@ -46,33 +39,25 @@ const ROWS: Row[] = [
   {
     key: "mean",
     label: "Mean change",
-    value: (c, u) => <Value unit={u}>{formatSigned(c.change.mean)}</Value>,
+    value: (c) => formatSigned(c.change.mean),
     note: "Average of after − before over valid pixels; pulled by extreme pixels.",
   },
   {
     key: "median",
     label: "Median change",
-    value: (c, u) => <Value unit={u}>{formatSigned(c.change.median)}</Value>,
+    value: (c) => formatSigned(c.change.median),
     note: "Typical pixel difference; robust to extreme pixels.",
   },
   {
     key: "iqr",
     label: "Interquartile range (p25 to p75)",
-    value: (c, u) => (
-      <Value unit={u}>
-        {formatSigned(c.change.p25)} to {formatSigned(c.change.p75)}
-      </Value>
-    ),
+    value: (c) => `${formatSigned(c.change.p25)} to ${formatSigned(c.change.p75)}`,
     note: "Spread of the middle half of pixel differences; not an uncertainty.",
   },
   {
     key: "p1090",
     label: "p10 to p90",
-    value: (c, u) => (
-      <Value unit={u}>
-        {formatSigned(c.change.p10)} to {formatSigned(c.change.p90)}
-      </Value>
-    ),
+    value: (c) => `${formatSigned(c.change.p10)} to ${formatSigned(c.change.p90)}`,
     note: "Spread of the middle 80% of pixel differences.",
   },
   {
@@ -80,7 +65,7 @@ const ROWS: Row[] = [
     label: "Valid-data coverage",
     value: (c) => (
       <>
-        <Value unit="% of AOI pixels">{formatPlain(c.change.validFraction * 100)}</Value>
+        {formatPlain(c.change.validFraction * 100)}%
         <span className="orb-itable__sub">
           {formatCount(c.change.validPixels)} of {formatCount(c.change.totalPixels)} px
         </span>
@@ -110,66 +95,70 @@ function ResultsTable({ status, stats, channel, both, onBoth }: ResultsTableProp
   const unit = own.change.unit;
 
   return (
-    <>
-      <div className="orb-instr-scroll" role="region" aria-label="Results table, scrollable" tabIndex={0}>
-        <table className="orb-itable">
-          <caption>
-            Radar brightness change, after − before · {channels.join(" and ")} · {unit}
-            {stats.channels.length > 1 && (
-              <button
-                type="button"
-                className="orb-itable__link"
-                aria-pressed={both}
-                onClick={() => onBoth(!both)}
-              >
-                {both ? "Show selected channel only" : `Show ${stats.channels.join(" and ")} side by side`}
-              </button>
-            )}
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">Measurement</th>
-              {channels.map((c) => (
-                <th key={c} scope="col" className="orb-itable__num">
-                  Value{channels.length > 1 ? ` · ${c}` : ""}
-                </th>
-              ))}
-              <th scope="col">Interpretation / limitation</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ROWS.map((r) => (
-              <tr key={r.key}>
-                <th scope="row">{r.label}</th>
-                {channels.map((c) => (
-                  <td key={c} className="orb-itable__num">
-                    {stats.byChannel[c] ? r.value(stats.byChannel[c], unit) : "—"}
-                  </td>
-                ))}
-                <td className="orb-itable__note">{r.note}</td>
-              </tr>
+    <div className="orb-instr-scroll" role="region" aria-label="Results table, scrollable" tabIndex={0}>
+      <table className="orb-itable orb-itable--results">
+        <caption className="sr-only">
+          Radar brightness change, after − before · {channels.join(" and ")} · {unit}
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Measurement</th>
+            {channels.map((c) => (
+              <th key={c} scope="col" className="orb-itable__num">
+                {channels.length > 1 ? `${c} · ` : ""}
+                {unit}
+              </th>
             ))}
-            <tr>
-              <th scope="row">Affected area</th>
-              <td className="orb-itable__num" colSpan={channels.length}>
-                Not calculated
-              </td>
-              <td className="orb-itable__note">
-                Needs a classification method, change mask, pixel areas and validation — not available from browse
-                quicklooks.
-              </td>
+          </tr>
+        </thead>
+        <tbody>
+          {ROWS.map((r) => (
+            <tr key={r.key}>
+              <th scope="row">
+                <span className="orb-itable__name">{r.label}</span>
+                <span className="orb-itable__sub orb-itable__note" title={r.note}>
+                  {r.note}
+                </span>
+              </th>
+              {channels.map((c) => (
+                <td key={c} className="orb-itable__num">
+                  {stats.byChannel[c] ? r.value(stats.byChannel[c]) : "—"}
+                </td>
+              ))}
             </tr>
-          </tbody>
-        </table>
+          ))}
+          <tr>
+            <th scope="row">
+              <span className="orb-itable__name">Affected area</span>
+              <span className="orb-itable__sub orb-itable__note" title="Needs a classification method, change mask, pixel areas and validation — not available from browse quicklooks.">
+                Needs a classification method, change mask, pixel areas and validation — not available from
+                browse quicklooks.
+              </span>
+            </th>
+            <td className="orb-itable__num" colSpan={channels.length}>
+              Not calculated
+            </td>
+          </tr>
+        </tbody>
+      </table>
       <p className="orb-instr-foot">
+        {stats.channels.length > 1 && (
+          <button
+            type="button"
+            className="orb-itable__link orb-itable__link--first"
+            aria-pressed={both}
+            onClick={() => onBoth(!both)}
+          >
+            {both ? "Show selected channel only" : `Show ${stats.channels.join(" and ")} side by side`}
+          </button>
+        )}
         <span className="orb-mono">
           Method {METHOD_VERSION} · after − before · {channels.join(" + ")} · unit {unit}
         </span>
         <br />
         {CAVEAT}
       </p>
-      </div>
-    </>
+    </div>
   );
 }
 

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 /** A labelled block inside a dock: mono eyebrow title, optional right slot. */
@@ -18,6 +18,42 @@ export function Section({
         {right}
       </h3>
       {children}
+    </section>
+  );
+}
+
+/**
+ * A section whose body sits behind a disclosure header.  `defaultOpen` is the
+ * initial state only; afterwards the user's choice wins.
+ */
+export function DisclosureSection({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  /** short status shown on the header (e.g. "73 scenes") */
+  summary?: ReactNode;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const bodyId = useId();
+  return (
+    <section className="orb-section orb-section--disclosure">
+      <h3 className="orb-section__title orb-section__title--button">
+        <button type="button" aria-expanded={open} aria-controls={open ? bodyId : undefined} onClick={() => setOpen((o) => !o)}>
+          {open ? <ChevronUp size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
+          <span>{title}</span>
+          {summary !== undefined && <span className="orb-section__summary">{summary}</span>}
+        </button>
+      </h3>
+      {open && (
+        <div id={bodyId} className="orb-section__body">
+          {children}
+        </div>
+      )}
     </section>
   );
 }

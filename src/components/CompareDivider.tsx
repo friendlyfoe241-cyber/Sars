@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import L from "leaflet";
 import { ImageOverlay, useMap } from "react-leaflet";
 import { MoveHorizontal } from "lucide-react";
+import { coveredInsets, observeLayout } from "../lib/freeArea";
 
 /**
  * Draggable before / after comparison on the one Leaflet map.
@@ -28,8 +29,13 @@ const BIG = 100000;
 interface Range {
   left: number;
   right: number;
-  /** container px; grip and labels sit below this when the top bar overlaps the map */
+  /** container px; labels sit below this when the top bar overlaps the map */
   top: number;
+  /** the divider line runs from here to `lineBottom` (free area, not under the panels) */
+  lineTop: number;
+  lineBottom: number;
+  /** grip top: vertically centred in the free area */
+  gripY: number;
   labelLeft: number;
   labelRight: number;
 }
@@ -49,53 +55,36 @@ function valueText(pct: number): string {
   return `${pct}% — before on the left, after on the right`;
 }
 
-function overlaps(r: DOMRect, c: DOMRect): boolean {
-  return (
-    r.width > 0 &&
-    r.height > 0 &&
-    r.right > c.left &&
-    r.left < c.right &&
-    r.bottom > c.top &&
-    r.top < c.bottom
-  );
-}
-
-/** The part of the map not covered by the floating side panels. */
+/** The part of the map not covered by the floating panels. */
 function measure(container: HTMLElement): Range {
   const cr = container.getBoundingClientRect();
-  const shell = container.closest(".orb-shell");
-  let left = 0;
-  let right = cr.width;
-  let top = 12;
-  let hasLeftPanel = false;
-  const panels = shell ? shell.querySelectorAll<HTMLElement>(".orb-left, .orb-right") : [];
-  panels.forEach((el) => {
-    if (el.hidden) return;
-    const r = el.getBoundingClientRect();
-    if (!overlaps(r, cr)) return;
-    if (r.left + r.width / 2 < cr.left + cr.width / 2) {
-      left = Math.max(left, r.right - cr.left + GAP);
-      hasLeftPanel = true;
-    } else {
-      right = Math.min(right, r.left - cr.left - GAP);
-    }
-  });
-  const topBar = shell?.querySelector<HTMLElement>(".orb-top");
-  if (topBar) {
-    const r = topBar.getBoundingClientRect();
-    if (overlaps(r, cr)) top = Math.max(top, r.bottom - cr.top + GAP);
-  }
+  const ins = coveredInsets(container, GAP);
+  let left = ins.left ?? 0;
+  let right = cr.width - (ins.right ?? 0);
   if (right - left < 160) {
     left = 0;
     right = cr.width;
   }
+  const lineTop = ins.top ?? 0;
+  const lineBottom = cr.height - (ins.bottom ?? 0);
+  const anyPanel = ins.left !== null || ins.right !== null || ins.top !== null || ins.bottom !== null;
+  // From 1024 the zoom and basemap controls sit at the top-right of the free
+  // area: the After label stays clear of them.  Below, they are top-left.
+  const desktop = window.matchMedia("(min-width: 1024px)").matches;
+  let controlsW = 0;
+  container.querySelectorAll<HTMLElement>(".leaflet-top.leaflet-left .leaflet-control").forEach((el) => {
+    controlsW = Math.max(controlsW, el.offsetWidth);
+  });
   return {
     left,
     right,
-    top,
+    top: Math.max(12, lineTop + (ins.top !== null ? 0 : 12)),
+    lineTop,
+    lineBottom,
+    gripY: anyPanel ? (lineTop + lineBottom) / 2 - GRIP / 2 : cr.height * 0.72,
     // below 1024 Leaflet's zoom buttons sit top-left: keep the label clear of them
-    labelLeft: hasLeftPanel ? left + GAP : 12 + 44 + GAP,
-    labelRight: cr.width - right + GAP,
+    labelLeft: ins.left !== null ? left + GAP : 12 + 44 + GAP,
+    labelRight: cr.width - right + GAP + (desktop ? controlsW + GAP : 0),
   };
 }
 
@@ -157,9 +146,6 @@ export default function CompareDivider({
       const x = range.left + frac * (range.right - range.left);
       line.style.transform = `translate3d(${x}px,0,0)`;
       grip.style.transform = `translate3d(${Math.min(Math.max(x - GRIP / 2, range.left), Math.max(range.right - GRIP, range.left))}px,0,0)`;
-      root.style.setProperty("--cmp-top", `${range.top}px`);
-      beforeLabel.style.left = `${range.labelLeft}px`;
-      afterLabel.style.right = `${range.labelRight}px`;
 
       // Clip each pane at the divider.  Pane coordinates move with the map,
       // so convert the container x into layer space on every update.
@@ -192,20 +178,19 @@ export default function CompareDivider({
       // labels are positioned by render(); their width does not depend on it
       beforeW = beforeLabel.offsetWidth;
       afterW = afterLabel.offsetWidth;
+      root.style.setProperty("--cmp-top", `${range.top}px`);
+      root.style.setProperty("--cmp-line-top", `${range.lineTop}px`);
+      root.style.setProperty("--cmp-line-h", `${Math.max(0, range.lineBottom - range.lineTop)}px`);
+      root.style.setProperty("--cmp-grip-y", `${range.gripY}px`);
+      beforeLabel.style.left = `${range.labelLeft}px`;
+      afterLabel.style.right = `${range.labelRight}px`;
       render();
     };
     apply.current = relayout;
 
     relayout();
     map.on("move viewreset resize zoomend", render);
-    const observer = new ResizeObserver(relayout);
-    observer.observe(container);
-    container.closest(".orb-shell")?.querySelectorAll(".orb-left, .orb-right, .orb-top").forEach((el) => observer.observe(el));
-    // panels collapsing / the details panel hiding change the range without
-    // resizing the map
-    const mutations = new MutationObserver(relayout);
-    const shell = container.closest(".orb-shell");
-    if (shell) mutations.observe(shell, { attributes: true, subtree: true, attributeFilter: ["hidden", "data-collapsed", "data-details"] });
+    const stopObserving = observeLayout(container, relayout);
     // one more pass once the pane elements and first layout exist
     const raf = requestAnimationFrame(relayout);
 
@@ -334,8 +319,7 @@ export default function CompareDivider({
       cancelAnimationFrame(raf);
       if (moveRaf) cancelAnimationFrame(moveRaf);
       map.off("move viewreset resize zoomend", render);
-      observer.disconnect();
-      mutations.disconnect();
+      stopObserving();
       for (const t of stopTypes) grip.removeEventListener(t, stop);
       grip.removeEventListener("pointerdown", onDown);
       grip.removeEventListener("pointermove", onMove);

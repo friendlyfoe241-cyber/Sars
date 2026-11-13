@@ -16,7 +16,7 @@ import type { NisarScene } from "../lib/discovery";
 import type { ViewerDataset } from "../lib/data";
 import type { DisplayLayer, DisplayMode, LayerUrls } from "../lib/useChangeLayers";
 import { formatDate } from "../lib/data";
-import { coveredInsets } from "../lib/freeArea";
+import { coveredInsets, observeLayout } from "../lib/freeArea";
 import MapLegend from "./MapLegend";
 import CompareDivider from "./CompareDivider";
 import { Spinner } from "./ui";
@@ -151,6 +151,38 @@ function boundsOf(aoi: Aoi): L.LatLngBoundsExpression {
 }
 
 const FIT_GAP = 16;
+
+/**
+ * Publishes the free map area (what no open panel covers) as --orb-free-*
+ * custom properties on the .orb-map wrapper: the legend and the zoom /
+ * basemap controls position themselves from them.  A side no panel covers
+ * has no property, so the CSS fallback (12px) applies.
+ */
+function FreeAreaVars() {
+  const map = useMap();
+  useEffect(() => {
+    const container = map.getContainer();
+    const host = container.parentElement;
+    if (!host) return;
+    const write = () => {
+      const m = coveredInsets(container, FIT_GAP);
+      for (const side of ["left", "right", "top", "bottom"] as const) {
+        const v = m[side];
+        if (v === null) host.style.removeProperty(`--orb-free-${side}`);
+        else host.style.setProperty(`--orb-free-${side}`, `${Math.round(v)}px`);
+      }
+    };
+    write();
+    const stop = observeLayout(container, write);
+    const raf = requestAnimationFrame(write); // after the first layout
+    return () => {
+      cancelAnimationFrame(raf);
+      stop();
+      for (const side of ["left", "right", "top", "bottom"]) host.style.removeProperty(`--orb-free-${side}`);
+    };
+  }, [map]);
+  return null;
+}
 
 /**
  * Fit the AOI into the real free area of the map: the padding on every side
@@ -549,6 +581,7 @@ function MapView({
         <AoiDrawer enabled={drawMode} onAoiDrawn={onAoiDrawn} drawGuard={drawGuard} />
         <FitController aoi={aoi} fitKey={fitKey} layoutKey={layoutKey} />
         <ScaleBar />
+        <FreeAreaVars />
         {!CUSTOM_BASEMAP_URL && <BasemapControl value={basemapId} onChange={setBasemapId} />}
       </MapContainer>
       {compare && viewer && !compareReady && rendering && (

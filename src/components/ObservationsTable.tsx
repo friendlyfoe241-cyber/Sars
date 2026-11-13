@@ -1,6 +1,6 @@
 import { Fragment, memo, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, ArrowDown, ArrowUp } from "lucide-react";
-import { formatAcquisitionTime } from "../lib/data";
+import { ChevronDown, ChevronRight, ArrowDown, ArrowUp, MapPin } from "lucide-react";
+import { formatAcquisitionTime, formatDate } from "../lib/data";
 import type { NisarScene } from "../lib/discovery";
 import type { ViewState } from "../lib/viewState";
 import { Spinner } from "./ui";
@@ -19,7 +19,7 @@ interface ObservationsTableProps {
 }
 
 const PAGE = 25;
-const COLS = 7;
+const COLS = 6;
 
 function geometry(s: NisarScene): string {
   return (
@@ -98,15 +98,21 @@ function ObservationsTable({
         aria-label="Observations table, scrollable"
         tabIndex={0}
       >
-        <table className="orb-itable">
+        <table className="orb-itable orb-itable--obs">
+          <colgroup>
+            <col className="orb-col-expand" />
+            <col className="orb-col-when" />
+            <col className="orb-col-place" />
+            <col className="orb-col-channels" />
+            <col className="orb-col-maturity" />
+            <col className="orb-col-role" />
+          </colgroup>
           <caption>
-            {rows.length} observation{rows.length === 1 ? "" : "s"} · times in UTC ·{" "}
-            {roleBefore || roleAfter ? "Before / After rows first, " : ""}
-            {dir === "asc" ? "oldest" : "newest"} first
+            {rows.length} observation{rows.length === 1 ? "" : "s"} · UTC · {dir === "asc" ? "oldest" : "newest"} first
             {rows.length > PAGE && (
               <>
                 {" "}
-                · showing {shown.length} of {rows.length}
+                · {shown.length} of {rows.length}
                 <button
                   type="button"
                   className="orb-itable__link"
@@ -129,7 +135,7 @@ function ObservationsTable({
                   className="orb-itable__sort"
                   onClick={() => setDir((d) => (d === "asc" ? "desc" : "asc"))}
                 >
-                  Acquisition (UTC)
+                  Acquisition
                   <SortIcon size={14} aria-hidden />
                   <span className="sr-only">
                     , sorted {dir === "asc" ? "oldest first" : "newest first"}; activate to reverse
@@ -137,10 +143,9 @@ function ObservationsTable({
                 </button>
               </th>
               <th scope="col">Location</th>
-              <th scope="col">Radar channels</th>
-              <th scope="col">Maturity</th>
-              <th scope="col">Role / availability</th>
-              <th scope="col">Actions</th>
+              <th scope="col">Channels</th>
+              <th scope="col" className="orb-col-maturity">Maturity</th>
+              <th scope="col">Role</th>
             </tr>
           </thead>
           <tbody>
@@ -166,22 +171,31 @@ function ObservationsTable({
                       </button>
                     </td>
                     <th scope="row" className="orb-itable__time">
-                      {when}
+                      <span title={when}>{formatDate(s.startTime)}</span>
+                      <span className="orb-itable__sub">{s.startTime.slice(11, 16)} UTC</span>
                     </th>
                     <td>
                       <span className="orb-itable__place" title={locationLabel}>
                         {locationLabel || "—"}
                       </span>
-                      <span className="orb-itable__sub">{geometry(s)}</span>
+                      <span className="orb-itable__sub orb-itable__trunc" title={geometry(s)}>
+                        {geometry(s)}
+                      </span>
                     </td>
-                    <td className="orb-itable__mono">{s.polarisations.join(" · ")}</td>
-                    <td className="orb-itable__mono">{s.maturity}</td>
-                    <td>
-                      <span className="orb-itable__role">{role ?? "Not selected"}</span>
-                      {metaOnly && <span className="orb-itable__sub">Metadata only</span>}
+                    <td className="orb-itable__mono">
+                      <span className="orb-itable__trunc" title={s.polarisations.join(" · ")}>
+                        {s.polarisations.join(" · ")}
+                      </span>
+                      {metaOnly && <span className="orb-itable__sub orb-itable__warn">Metadata only</span>}
+                    </td>
+                    <td className="orb-itable__mono orb-col-maturity">
+                      <span className="orb-itable__trunc" title={s.maturity}>
+                        {s.maturity}
+                      </span>
                     </td>
                     <td>
-                      <span className="orb-itable__actions">
+                      <span className="sr-only">{role ?? "Not selected"}</span>
+                      <span className="orb-itable__actions" role="group" aria-label={`Role of ${when}`}>
                         <button
                           type="button"
                           className="orb-button orb-button--compact"
@@ -202,12 +216,13 @@ function ObservationsTable({
                         </button>
                         <button
                           type="button"
-                          className="orb-button orb-button--compact"
+                          className="orb-button orb-button--compact orb-itable__icon"
                           aria-pressed={s.id === selectedSceneId}
                           aria-label={`Highlight footprint of ${when} on the map`}
+                          title="Highlight footprint on the map"
                           onClick={() => onSelectScene(s.id)}
                         >
-                          Footprint
+                          <MapPin size={14} aria-hidden />
                         </button>
                       </span>
                     </td>

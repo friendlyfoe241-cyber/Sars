@@ -16,6 +16,10 @@ interface InstrumentRowProps {
   onToggle: () => void;
   tab: InstrumentTab;
   onTab: (t: InstrumentTab) => void;
+  /** open the row on this tab (from the collapsed bar) */
+  onOpenTab: (t: InstrumentTab) => void;
+  /** one-line status per instrument, shown on the collapsed bar */
+  summaries: Record<InstrumentTab, string>;
   observations: ReactNode;
   results: ReactNode;
   graph: ReactNode;
@@ -32,7 +36,7 @@ function CollapseButton({ open, onToggle }: { open: boolean; onToggle: () => voi
       aria-label={open ? "Hide instrument row" : "Show instrument row"}
     >
       {open ? <ChevronDown size={18} aria-hidden /> : <ChevronUp size={18} aria-hidden />}
-      <span className="orb-instr__collapse-text">{open ? "Hide" : "Show instruments"}</span>
+      <span className="orb-instr__collapse-text">{open ? "Hide" : "Show"}</span>
     </button>
   );
 }
@@ -75,6 +79,8 @@ export default function InstrumentRow({
   onToggle,
   tab,
   onTab,
+  onOpenTab,
+  summaries,
   observations,
   results,
   graph,
@@ -85,8 +91,22 @@ export default function InstrumentRow({
 
   if (collapsible && !open) {
     return (
-      <div className="orb-bottom orb-bottom--closed">
-        <CollapseButton open={false} onToggle={onToggle} />
+      <div className="orb-bottom orb-bottom--closed" data-layout="bar">
+        <div className="orb-bar" role="group" aria-label="Instruments, collapsed">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className="orb-bar__tab"
+              aria-expanded={false}
+              onClick={() => onOpenTab(t.id)}
+            >
+              <span className="orb-bar__name">{t.label}</span>
+              <span className="orb-bar__status">{summaries[t.id]}</span>
+            </button>
+          ))}
+          <CollapseButton open={false} onToggle={onToggle} />
+        </div>
       </div>
     );
   }

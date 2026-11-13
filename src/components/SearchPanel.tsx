@@ -99,8 +99,8 @@ export default function SearchPanel({
       </Section>
 
       <Section title="Area of interest">
-        <div className="flex flex-wrap gap-2">
-          <div className="w-[128px] shrink-0">
+        <div className="flex items-end gap-2">
+          <div className="w-[124px] shrink-0">
             <label htmlFor="orb-aoi-size" className="orb-label">
               Size
             </label>
@@ -118,20 +118,17 @@ export default function SearchPanel({
               ))}
             </select>
           </div>
-          <div className="min-w-[112px] flex-1">
-            <span className="orb-label">Custom area</span>
-            <button
-              type="button"
-              onClick={onToggleDraw}
-              aria-pressed={drawMode}
-              className="orb-button orb-button--block !px-2"
-            >
-              <SquareDashed size={16} aria-hidden />
-              {drawMode ? "Drawing… (click to cancel)" : "Draw AOI"}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onToggleDraw}
+            aria-pressed={drawMode}
+            className="orb-button min-w-0 flex-1 !px-2"
+          >
+            <SquareDashed size={16} aria-hidden />
+            {drawMode ? "Cancel drawing" : "Draw AOI"}
+          </button>
         </div>
-        <p className="orb-note orb-mono mt-3">
+        <p className="orb-note orb-mono mt-2">
           {aoi ? (
             <>
               {formatAoi(aoi)}

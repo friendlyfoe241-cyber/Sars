@@ -23,7 +23,7 @@ const CAPTION_DN =
   "Per-scene stretched browse brightness — not comparable in magnitude between dates; not calibrated gamma-0.";
 const CAPTION_STORED = "Stored 8-bit raster values of each acquisition, over pixels valid in both dates.";
 const DAY = 86_400_000;
-const M = { l: 54, r: 14, t: 24, b: 38 };
+const M = { l: 48, r: 14, t: 22, b: 34 };
 
 interface Tip {
   x: number;
@@ -133,7 +133,7 @@ function ByDatePlot({
         transform={`translate(12 ${M.t + ph / 2}) rotate(-90)`}
         textAnchor="middle"
       >
-        {stats.displayDn ? "Display DN (0–255)" : "Stored DN (0–255)"}
+        {stats.displayDn ? "Display DN" : "Stored DN"}
       </text>
       <text className="orb-axis orb-axis--title" x={M.l + pw / 2} y={h - 3} textAnchor="middle">
         Acquisition date (UTC)
@@ -178,9 +178,9 @@ function ByDatePlot({
                 <line key={v} x1={cx - 6} x2={cx + 6} y1={y(v)} y2={y(v)} stroke={colour} strokeWidth={1.5} />
               ))}
               <rect
-                x={cx - 8}
+                x={cx - 10}
                 y={y(d.p75)}
-                width={16}
+                width={20}
                 height={Math.max(2, y(d.p25) - y(d.p75))}
                 fill={secondary ? "var(--orb-bg)" : colour}
                 fillOpacity={secondary ? 0.9 : 0.85}
@@ -191,7 +191,7 @@ function ByDatePlot({
               <circle
                 cx={cx}
                 cy={y(d.median)}
-                r={4.5}
+                r={5.5}
                 fill={secondary ? "var(--orb-bg)" : "var(--orb-text)"}
                 stroke={secondary ? colour : "var(--orb-bg)"}
                 strokeWidth={2}
@@ -334,7 +334,7 @@ function DeltaPlot({
         transform={`translate(12 ${M.t + ph / 2}) rotate(-90)`}
         textAnchor="middle"
       >
-        Share of valid pixels (%)
+        % of valid pixels
       </text>
       <g
         className="orb-mark orb-mark--plot"
@@ -427,12 +427,13 @@ function TemporalGraph({ status, stats, channel, view, onView }: TemporalGraphPr
     message = "The change distribution is shown for display-DN quicklook pairs only.";
   }
 
+  const caption = stats?.displayDn === false ? CAPTION_STORED : CAPTION_DN;
   const n = stats?.acquisitions.length ?? 0;
   const context =
     own && stats
       ? view === "date"
-        ? `${n} acquisitions · ${n === 2 ? "two-date comparison" : "dated sequence"} · ${channel}`
-        : `after − before · ${channel} · ${formatCount(own.delta.valid)} valid pixels`
+        ? `${n} acquisitions · ${channel}`
+        : `${channel} · ${formatCount(own.delta.valid)} valid px`
       : "";
   return (
     <div className="orb-graph">
@@ -465,7 +466,9 @@ function TemporalGraph({ status, stats, channel, view, onView }: TemporalGraphPr
         )}
         <Tooltip tip={message ? null : tip} w={size.w} />
       </div>
-      <p className="orb-graph__caption">{stats?.displayDn === false ? CAPTION_STORED : CAPTION_DN}</p>
+      <p className="orb-graph__caption" title={caption}>
+        {caption}
+      </p>
       {!message && own && stats && view === "date" && (
         <table className="sr-only">
           <caption>Brightness by acquisition date, {channel}, {stats.displayDn ? "display DN" : "stored DN"}</caption>

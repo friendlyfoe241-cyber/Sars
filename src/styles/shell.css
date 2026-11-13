@@ -16,7 +16,7 @@
   --orb-gap: 16px;
   --orb-footer-gap: 28px;
   --orb-bottom-inset: 0px;
-  --orb-row-h: 280px;
+  --orb-row-h: 240px;
   --orb-row-inset: 0px;
   --orb-map-left: 12px;
   --orb-fit-left: 12;
@@ -213,7 +213,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 48px;
+  min-height: 44px;
   padding: 4px 4px 4px 16px;
   border-bottom: 1px solid var(--orb-border);
 }
@@ -228,22 +228,47 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: var(--orb-control-border) transparent;
+  scrollbar-color: var(--orb-control-border) var(--orb-surface-raised);
 }
+.orb-dock__body::-webkit-scrollbar { width: 8px; }
+.orb-dock__body::-webkit-scrollbar-track { background: var(--orb-surface-raised); }
+.orb-dock__body::-webkit-scrollbar-thumb { background: var(--orb-control-border); border-radius: 0; }
 .orb-dock[data-collapsed="true"] .orb-dock__head { border-bottom-color: transparent; }
 .orb-dock[data-collapsed="true"] .orb-dock__body { display: none; }
 
 .orb-section {
-  padding: 16px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--orb-border);
 }
 .orb-section:last-child { border-bottom: 0; }
+/* disclosure header: the whole title row is the toggle */
+.orb-section--disclosure { padding-block: 4px; }
+.orb-section__title--button { margin: 0; }
+.orb-section__title--button > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.orb-section__title--button > button:hover { color: var(--orb-text); }
+.orb-section__summary { margin-left: auto; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--orb-text-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.orb-section__body { padding: 4px 0 10px; }
 .orb-section__title {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  margin: 0 0 12px;
+  margin: 0 0 8px;
   font: 500 11px/16px var(--orb-font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -318,7 +343,8 @@
   border-color: var(--orb-text);
 }
 .orb-button--ghost[aria-pressed="true"] { border-color: var(--orb-text); }
-.orb-segment-group--fill .orb-segment { flex: 1 1 0; }
+.orb-segment-group--fill { flex-wrap: nowrap; }
+.orb-segment-group--fill .orb-segment { flex: 1 1 0; min-width: 0; padding-inline: 2px; font-size: 12.5px; white-space: nowrap; }
 .orb-segment[aria-pressed="true"] { font-weight: 500; }
 .orb-segment:disabled {
   border: 1px dashed var(--orb-border);
@@ -439,14 +465,20 @@
 }
 
 /* ---- desktop 1024+: floating command interface ------------------------- */
+/* The map is the hero: a fixed full-viewport layer.  The grid only places the
+   panels around it: top bar, left dock, (optional) right dock, and the
+   instrument row across the full width underneath both docks.  The map's
+   free area (what no panel covers) is measured in JS (lib/freeArea.ts), which
+   publishes --orb-free-* on .orb-map for the legend and the map controls. */
 @media (min-width: 1024px) {
   .orb-shell {
     --orb-gap: 16px;
-    --orb-map-left: calc(var(--orb-left-w) + var(--orb-gap) * 2 + 8px);
+    --orb-left-w: 280px;
+    --orb-row-h: 240px;
     --orb-fit-left: 300;
     --orb-fit-right: 40;
-    --orb-fit-top: 150;
-    --orb-fit-bottom: 190;
+    --orb-fit-top: 110;
+    --orb-fit-bottom: 290;
     height: 100dvh;
     min-height: 0;
     overflow: hidden;
@@ -457,6 +489,7 @@
     grid-template-rows: auto minmax(0, 1fr) auto;
     grid-template-areas: "top top" "left map" "bottom bottom";
   }
+  .orb-shell[data-instruments="closed"] { --orb-row-h: 40px; --orb-fit-bottom: 70; }
   .orb-shell > * { pointer-events: auto; }
   .orb-shell > :not(.orb-map) { position: relative; z-index: 2; }
   .orb-map {
@@ -473,69 +506,69 @@
   }
   .orb-map .leaflet-container::after {
     background:
-      linear-gradient(to bottom, color-mix(in srgb, var(--orb-bg) 82%, transparent), transparent 200px),
-      radial-gradient(ellipse 110% 100% at 50% 52%, transparent 60%, color-mix(in srgb, var(--orb-bg) 78%, transparent) 100%),
-      linear-gradient(to top, rgb(70 140 210 / 22%), transparent 110px);
+      linear-gradient(to bottom, color-mix(in srgb, var(--orb-bg) 70%, transparent), transparent 130px),
+      radial-gradient(ellipse 115% 105% at 50% 50%, transparent 66%, color-mix(in srgb, var(--orb-bg) 70%, transparent) 100%),
+      linear-gradient(to top, rgb(70 140 210 / 18%), transparent 90px);
   }
+
+  /* top bar: one compact band.  Brand + title stack on the left, navigation
+     in the middle, tools on the right. */
   .orb-top {
     pointer-events: none;
     background: transparent;
     border-bottom: 0;
-    padding: 16px 16px 8px;
+    padding: 12px 16px 8px;
+    gap: 0 16px;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-    grid-template-areas: "brand nav tools" "title title ." ;
-    align-items: start;
+    grid-template-areas: "brand nav tools" "title nav tools";
+    align-items: center;
   }
   .orb-top > * { pointer-events: auto; }
   .orb-top .orb-title { pointer-events: none; }
-  .orb-title { padding-top: 12px; }
-  .orb-title h1 { font-size: 32px; line-height: 40px; }
-  .orb-title p { font-size: 12px; }
-  .orb-brand { padding-top: 12px; font-size: 18px; line-height: 20px; }
-  .orb-nav { width: auto; max-width: none; }
-  .orb-nav__item { padding: 0 24px; }
+  .orb-title { padding-top: 0; }
+  .orb-title h1 { font-size: 22px; line-height: 28px; }
+  .orb-title p { font-size: 12px; line-height: 16px; }
+  .orb-title .orb-eyebrow { display: none; }
+  .orb-brand { padding-top: 0; font-size: 13px; line-height: 18px; }
+  .orb-nav { width: auto; max-width: none; align-self: center; }
+  .orb-nav__item { padding: 0 24px; min-height: 36px; }
+  .orb-tools { align-self: center; }
+  .orb-icon-btn { width: 36px; height: 36px; }
   .orb-desktop-only { display: inline-flex !important; }
+
   .orb-left,
-  .orb-right {
-    margin: 0 0 var(--orb-gap) var(--orb-gap);
-  }
-  .orb-left { align-self: start; max-height: 100%; }
+  .orb-right { margin: 0 0 var(--orb-gap) var(--orb-gap); min-height: 0; }
+  .orb-left { align-self: start; max-height: calc(100% - var(--orb-gap)); }
   .orb-right {
     grid-area: map;
     justify-self: end;
     align-self: start;
-    max-height: 100%;
+    max-height: calc(100% - var(--orb-gap));
     width: var(--orb-right-w);
     margin: 0 var(--orb-gap) var(--orb-gap) 0;
     z-index: 5;
   }
   .orb-right[hidden] { display: none; }
+
+  /* legend: bottom-left of the free map area, just above the instrument row */
   .orb-legend {
     position: absolute;
     z-index: 900;
-    left: var(--orb-map-left);
-    bottom: calc(var(--orb-footer-gap) + var(--orb-gap) + var(--orb-row-inset));
-    width: min(248px, calc(100% - 24px));
+    left: var(--orb-free-left, 12px);
+    bottom: var(--orb-free-bottom, 12px);
+    width: min(236px, calc(100% - 24px));
     border-width: 1px;
     box-shadow: var(--orb-shadow);
   }
-  .orb-hint { top: auto; bottom: calc(var(--orb-footer-gap) + 64px + var(--orb-row-inset)); }
-  /* with the instrument row open, the map is fitted above it */
-  .orb-shell[data-instruments="open"] {
-    --orb-row-inset: calc(var(--orb-row-h) + var(--orb-gap));
-    --orb-fit-bottom: 350;
+  /* transient hints: bottom-centre of the free area */
+  .orb-hint {
+    top: auto;
+    bottom: var(--orb-free-bottom, 12px);
+    left: calc(var(--orb-free-left, 12px) + (100% - var(--orb-free-left, 12px) - var(--orb-free-right, 12px)) / 2);
   }
 }
 
 @media (min-width: 1024px) and (max-width: 1279px) {
-  /* beside the zoom controls there is no room above the row: legend bottom-right */
-  .orb-shell[data-instruments="open"] .orb-legend {
-    left: auto;
-    right: var(--orb-gap);
-  }
-  .orb-shell[data-instruments="open"][data-details="open"] .orb-legend {
-    right: calc(var(--orb-right-w) + var(--orb-gap) * 2);
-  }
   .orb-nav__item { padding: 0 14px; }
   .orb-brand span { display: none; }
 }
@@ -543,22 +576,13 @@
 /* ---- wide desktop: right panel gets its own column --------------------- */
 @media (min-width: 1280px) {
   .orb-shell {
-    --orb-legend-right: calc(var(--orb-right-w) + var(--orb-gap) * 2);
     --orb-left-w: 300px;
-    --orb-fit-right: 340;
+    --orb-fit-right: 40;
     grid-template-columns: calc(var(--orb-left-w) + var(--orb-gap)) minmax(0, 1fr) calc(var(--orb-right-w) + var(--orb-gap));
     grid-template-areas: "top top top" "left map right" "bottom bottom bottom";
   }
-  /* the instrument row takes the bottom-left of the map, so the legend
-     moves to the bottom-right (above the row, beside the details column) */
-  .orb-shell[data-instruments="open"] .orb-legend {
-    left: auto;
-    right: var(--orb-legend-right);
-  }
   .orb-shell[data-details="closed"] {
-    --orb-legend-right: var(--orb-gap);
     grid-template-columns: calc(var(--orb-left-w) + var(--orb-gap)) minmax(0, 1fr) 0;
-    --orb-fit-right: 40;
   }
   .orb-right {
     grid-area: right;
@@ -621,8 +645,8 @@
 }
 .orb-compare__line {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: var(--cmp-line-top, 0px);
+  height: var(--cmp-line-h, 100%);
   left: -1px;
   width: 2px;
   background: var(--orb-accent);
@@ -630,7 +654,7 @@
 }
 .orb-compare__grip {
   position: absolute;
-  top: max(var(--cmp-top), 30%);
+  top: var(--cmp-grip-y, 40%);
   left: 0;
   display: flex;
   align-items: center;
@@ -666,10 +690,6 @@
 .orb-compare__date { font-size: 12px; line-height: 16px; color: var(--orb-text); white-space: nowrap; }
 .orb-hint--loading { display: flex; align-items: center; gap: 8px; }
 .orb-pane-compare { transition: none !important; }
-
-@media (max-width: 1023px) {
-  .orb-compare__grip { top: 72%; }
-}
 
 @media (max-width: 767px) {
   /* narrow labels (date on one line, UTC and channel on the next) leave room

@@ -70,11 +70,18 @@
 .leaflet-top.leaflet-left { margin: 12px 0 0 12px; }
 
 @media (min-width: 1024px) {
+  /* zoom + basemap: anchored to the right edge of the free map area, below
+     the top bar (--orb-free-* are published by MapView from the open panels) */
   .leaflet-top.leaflet-left {
-    top: 50%;
-    left: var(--orb-map-left);
+    left: auto;
+    right: var(--orb-free-right, 12px);
+    top: var(--orb-free-top, 12px);
     margin: 0;
-    transform: translateY(-50%);
+  }
+  .leaflet-top.leaflet-left .leaflet-control {
+    float: right;
+    clear: both;
+    margin: 0 0 8px;
   }
   .leaflet-bottom.leaflet-left .leaflet-control { margin-left: 16px; margin-bottom: 4px; }
   .leaflet-bottom.leaflet-right .leaflet-control { margin-right: 0; }
@@ -87,7 +94,7 @@
 
 /* basemap: dimmed on its own pane only; the radar overlay pane is never
    filtered.  Earth reads as dusk on the night side rather than a bright atlas. */
-.leaflet-pane.orb-pane-basemap--earth { filter: brightness(0.56) saturate(0.85); }
+.leaflet-pane.orb-pane-basemap--earth { filter: brightness(0.7) saturate(0.9); }
 .leaflet-pane.orb-pane-basemap--reference { filter: brightness(0.92); }
 
 /* basemap switch, stacked under the zoom buttons */
@@ -96,13 +103,14 @@
   border: 1px solid var(--orb-border);
   background: var(--orb-glass);
   box-shadow: var(--orb-shadow);
-  padding: 8px 8px 4px;
+  padding: 3px;
 }
-.orb-basemap-switch__label { margin-bottom: 4px; }
-.orb-basemap-switch__buttons { display: flex; gap: 4px; padding-bottom: 4px; }
+/* the group keeps its aria-label; the visible caption is redundant */
+.orb-basemap-switch__label { display: none; }
+.orb-basemap-switch__buttons { display: flex; gap: 2px; }
 .orb-basemap-switch__btn {
-  min-height: 44px;
-  padding: 0 12px;
+  min-height: 32px;
+  padding: 0 10px;
   border: 1px solid transparent;
   background: var(--orb-surface-raised);
   color: var(--orb-text-muted);
@@ -117,7 +125,5 @@
 
 @media (max-width: 767px) {
   /* keep the switch compact on phones; the group stays labelled for AT */
-  .orb-basemap-switch { padding: 4px; }
-  .orb-basemap-switch__label { display: none; }
-  .orb-basemap-switch__buttons { padding-bottom: 0; }
+  .orb-basemap-switch__btn { min-height: 44px; }
 }

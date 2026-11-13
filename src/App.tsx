@@ -35,6 +35,7 @@ import {
   type ViewerDataset,
 } from "./lib/data";
 import { searchNisarGcov, type NisarScene } from "./lib/discovery";
+import { formatSigned } from "./lib/format";
 import { geocodePlace } from "./lib/geocode";
 import { findCompatiblePairs, type ScenePair } from "./lib/pairing";
 import {
@@ -102,12 +103,13 @@ export default function App() {
   const layoutMode = useLayoutMode();
   const [dest, setDest] = useState<Dest>("explore");
   const [controlsOpen, setControlsOpen] = useState(true);
-  // The observation panel is open by default except where it is an overlay.
-  const [detailsOpen, setDetailsOpen] = useState(layoutMode !== "mid");
-  useEffect(() => setDetailsOpen(layoutMode !== "mid"), [layoutMode]);
+  // The observation details panel is closed by default at every width: its
+  // content overlaps the observations table anyway.
+  const [detailsOpen, setDetailsOpen] = useState(false);
   // Instrument row (observations / results / graph): collapsible on desktop,
-  // always shown (stacked) on smaller screens.
-  const [instrOpen, setInstrOpen] = useState(true);
+  // always shown (stacked) on smaller screens.  Until the user chooses, it is
+  // open once a comparison is loaded and a slim bar before that.
+  const [instrChoice, setInstrChoice] = useState<boolean | null>(null);
   const [instrTab, setInstrTab] = useState<InstrumentTab>("observations");
   const [graphView, setGraphView] = useState<GraphView>("date");
   // With a pair loaded only its own footprints are drawn unless restored.
@@ -238,6 +240,8 @@ export default function App() {
       summary,
     ],
   );
+  const pairLoaded = viewState.kind === "ready" || viewState.kind === "no-valid-pixels";
+  const instrOpen = instrChoice ?? pairLoaded;
   const ai: AiState =
     aiEntry && aiEntry.key === currentSelectionKey ? aiEntry.state : IDLE_AI;
 
@@ -621,10 +625,14 @@ export default function App() {
   const handleToggleControls = useCallback(() => setControlsOpen((o) => !o), []);
   const handleToggleDetails = useCallback(() => setDetailsOpen((o) => !o), []);
   const handleToggleInstruments = useCallback(() => {
-    setInstrOpen((o) => !o);
+    setInstrChoice(!instrOpen);
+  }, [instrOpen]);
+  const handleOpenInstrument = useCallback((tab: InstrumentTab) => {
+    setInstrTab(tab);
+    setInstrChoice(true);
   }, []);
   const handleShowResults = useCallback(() => {
-    setInstrOpen(true);
+    setInstrChoice(true);
     setInstrTab("results");
     window.setTimeout(() => {
       const el = document.getElementById("instrument-results");
@@ -682,6 +690,27 @@ export default function App() {
     }
     return ids;
   }, [pairs, metadataOnlyPairIds, roleBefore, roleAfter, sceneById, unavailablePairs, example]);
+  const instrSummaries: Record<InstrumentTab, string> = {
+    observations: searching
+      ? "searching…"
+      : scenes.length > 0
+        ? `${scenes.length} scene${scenes.length === 1 ? "" : "s"}`
+        : searched
+          ? "none found"
+          : "no search yet",
+    results:
+      viewState.kind === "ready" && summary
+        ? `${channel} median ${formatSigned(summary.median)} ${summary.unit}`
+        : viewState.kind === "loading-raster"
+          ? "loading…"
+          : "no comparison",
+    graph:
+      viewState.kind === "ready" && pairStats
+        ? `${pairStats.acquisitions.length} acquisitions`
+        : viewState.kind === "loading-raster"
+          ? "loading…"
+          : "no comparison",
+  };
   const rowCollapsible = layoutMode === "wide" || layoutMode === "mid";
   const rowVisible = !rowCollapsible || instrOpen;
 
@@ -887,6 +916,8 @@ export default function App() {
         onToggle={handleToggleInstruments}
         tab={instrTab}
         onTab={setInstrTab}
+        onOpenTab={handleOpenInstrument}
+        summaries={instrSummaries}
         observations={
           <ObservationsTable
             status={viewState}

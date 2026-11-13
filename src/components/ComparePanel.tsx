@@ -1,6 +1,6 @@
 import type { ViewerDataset } from "../lib/data";
 import { formatAcquisitionTime } from "../lib/data";
-import { KeyRow, Section, Spinner } from "./ui";
+import { DisclosureSection, KeyRow, Section, Spinner } from "./ui";
 import type { DisplayChoice } from "../lib/useChangeLayers";
 import type { ChannelStatus } from "../lib/rasterSource";
 
@@ -95,7 +95,7 @@ export default function ComparePanel({
         </p>
       </Section>
 
-      <Section title="Acquisition">
+      <DisclosureSection title="Acquisition" summary={`${dataset.temporalBaselineDays} days`}>
         <dl className="m-0">
           <KeyRow label="Before">{formatAcquisitionTime(dataset.earlier.startTime)}</KeyRow>
           <KeyRow label="After">{formatAcquisitionTime(dataset.later.startTime)}</KeyRow>
@@ -104,7 +104,7 @@ export default function ComparePanel({
             {dataset.band}
           </KeyRow>
         </dl>
-      </Section>
+      </DisclosureSection>
 
       <Section title="Map">
         <label className="flex min-h-11 cursor-pointer items-center gap-3 text-[13px]">

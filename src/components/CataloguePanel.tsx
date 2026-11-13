@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Section } from "./ui";
+import { DisclosureSection, Section } from "./ui";
 import { formatDate } from "../lib/data";
 import type { NisarScene } from "../lib/discovery";
 import { compatibilityLabel, pairIssues, type ScenePair } from "../lib/pairing";
@@ -163,13 +163,9 @@ function CataloguePanel({
 
   return (
     <div ref={rootRef}>
-      <Section
+      <DisclosureSection
         title="Date filter"
-        right={
-          <span className="font-mono text-[11px] normal-case tracking-normal">
-            {loading ? "searching…" : `${scenes.length} scenes`}
-          </span>
-        }
+        summary={loading ? "searching…" : dateFrom || dateTo ? `${dateFrom || "…"} to ${dateTo || "…"}` : "any date"}
       >
         <div className="grid grid-cols-2 gap-2">
           <div>
@@ -206,7 +202,7 @@ function CataloguePanel({
         >
           Apply date filter
         </button>
-      </Section>
+      </DisclosureSection>
 
       {!loading && !error && scenes.length > 0 && (
         <>
@@ -263,9 +259,9 @@ function CataloguePanel({
             </Section>
           )}
 
-          <Section title="Scenes">
+          <DisclosureSection title="Scenes" summary={`${scenes.length} · full list`}>
             <ul
-              className="m-0 grid max-h-[280px] list-none grid-cols-[minmax(0,1fr)] gap-1 overflow-y-auto p-0 pr-1"
+              className="m-0 grid max-h-[220px] list-none grid-cols-[minmax(0,1fr)] gap-1 overflow-y-auto p-0 pr-1"
               aria-label="Catalogue scenes"
             >
               {scenes.map((scene) => (
@@ -280,7 +276,7 @@ function CataloguePanel({
                 />
               ))}
             </ul>
-          </Section>
+          </DisclosureSection>
 
           {beforeScene && afterScene && (
             <Section title="Comparison pair">

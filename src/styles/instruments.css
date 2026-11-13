@@ -46,11 +46,45 @@
 .orb-instr__tab:hover { background: var(--orb-surface-hover); color: var(--orb-text); }
 .orb-instr__tab[aria-selected="true"] { background: var(--orb-accent); color: var(--orb-on-accent); }
 .orb-bottom--closed { padding: 0; }
-.orb-bottom--closed .orb-instr__collapse {
+
+/* collapsed "instrument bar": three labelled tabs with a one-line status each */
+.orb-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-height: 40px;
+  padding: 2px;
   border: 1px solid var(--orb-border);
-  background: var(--orb-glass);
+  background: var(--orb-surface);
   box-shadow: var(--orb-shadow);
 }
+.orb-bar__tab {
+  display: flex;
+  flex: 1 1 0;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 14px;
+  border: 0;
+  background: var(--orb-surface-raised);
+  color: var(--orb-text);
+  font: 500 13px/1 var(--orb-font-body);
+  text-align: left;
+  cursor: pointer;
+  align-items: center;
+}
+.orb-bar__tab:hover { background: var(--orb-surface-hover); }
+.orb-bar__name { flex: none; }
+.orb-bar__name::after { content: " ·"; color: var(--orb-text-subtle); }
+.orb-bar__status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--orb-text-muted);
+  font: 400 12px/1 var(--orb-font-mono);
+}
+.orb-bar .orb-instr__collapse { min-height: 36px; flex: none; }
 
 /* ---- tables --------------------------------------------------------------- */
 .orb-instr-scroll {
@@ -64,7 +98,10 @@
 .orb-instr-scroll:focus-visible { outline: 2px solid var(--orb-focus); outline-offset: -2px; }
 .orb-itable { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 18px; }
 .orb-itable caption {
-  padding: 6px 12px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: left;
   color: var(--orb-text-muted);
   font: 400 11px/16px var(--orb-font-mono);
@@ -94,7 +131,7 @@
 .orb-itable tbody tr:hover { background: color-mix(in srgb, var(--orb-surface-raised) 70%, transparent); }
 .orb-itable tr[data-role] { background: color-mix(in srgb, var(--orb-surface-raised) 55%, transparent); }
 .orb-itable tr[data-selected] > :first-child { box-shadow: inset 3px 0 0 var(--orb-accent); }
-.orb-itable__narrow { width: 44px; padding-left: 6px !important; padding-right: 0 !important; }
+.orb-itable__narrow { width: 36px; padding-left: 4px !important; padding-right: 0 !important; }
 .orb-itable__time,
 .orb-itable__mono,
 .orb-itable .orb-itable__num {
@@ -106,7 +143,30 @@
 .orb-itable .orb-itable__num { text-align: right; }
 .orb-itable thead .orb-itable__num { font-family: var(--orb-font-mono); }
 .orb-itable__unit { color: var(--orb-text-muted); font-size: 11px; }
-.orb-itable__note { color: var(--orb-text-muted); min-width: 180px; }
+.orb-itable__name { display: block; font-weight: 500; }
+.orb-itable__note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.orb-itable__trunc { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.orb-itable__warn { color: var(--orb-warning); }
+.orb-itable__icon { min-width: 28px !important; padding: 0 !important; }
+.orb-itable__link--first { margin: 0 12px 0 0; }
+.orb-itable--obs { table-layout: fixed; }
+.orb-itable--obs :is(th, td) { overflow: hidden; }
+.orb-itable--obs tbody tr:not(.orb-itable__detail) > * { height: 36px; padding-block: 2px; }
+.orb-col-expand { width: 36px; }
+.orb-col-when { width: 96px; }
+.orb-col-channels { width: 72px; }
+.orb-col-maturity { width: 100px; }
+.orb-col-role { width: 142px; }
+.orb-itable--obs .orb-itable__time { font-size: 12px; line-height: 15px; }
+.orb-itable--obs :is(th, td) { padding-inline: 8px; }
+.orb-itable--obs .orb-itable__narrow { padding: 0 2px !important; }
+.orb-itable--obs .orb-button--compact { min-height: 26px; padding: 0 8px; font-size: 11px; }
+.orb-itable--obs .orb-itable__actions { gap: 3px; }
+.orb-itable--results { table-layout: auto; }
+.orb-itable--results tbody th { max-width: 0; width: 100%; }
+.orb-itable--results tbody th, .orb-itable--results td { padding-block: 3px; }
+.orb-itable--results .orb-itable__num { width: 1%; white-space: nowrap; }
+.orb-itable--results .orb-itable__sub { line-height: 14px; }
 .orb-itable__place {
   display: block;
   max-width: 150px;
@@ -142,13 +202,13 @@
 .orb-itable__expand { width: 32px; height: 32px; justify-content: center; color: var(--orb-text-muted); }
 .orb-itable__expand:hover { color: var(--orb-text); background: var(--orb-surface-hover); }
 .orb-itable__link {
-  margin-left: 12px;
+  margin-left: 8px;
   color: var(--orb-text);
   text-decoration: underline;
   text-decoration-color: var(--orb-control-border);
   text-underline-offset: 3px;
   font: 400 11px/16px var(--orb-font-mono);
-  min-height: 32px;
+  min-height: 24px;
 }
 .orb-itable__detail td { background: color-mix(in srgb, var(--orb-surface-raised) 45%, transparent); }
 .orb-itable__detail dl { display: grid; gap: 4px 16px; margin: 0; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
@@ -191,13 +251,14 @@
 
 /* ---- graph ----------------------------------------------------------------- */
 .orb-graph { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.orb-graph__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 12px 0; flex: none; }
-.orb-graph__seg { flex: none; padding: 2px; gap: 2px; }
-.orb-graph__seg .orb-segment { white-space: nowrap; min-height: 32px; padding: 4px 10px; font-size: 12px; }
-.orb-graph__ctx { flex: 1 1 120px; margin: 0; min-width: 0; color: var(--orb-text-muted); font: 400 11px/16px var(--orb-font-mono); }
-.orb-graph__plot { position: relative; flex: 1 1 auto; min-height: 96px; display: flex; }
+.orb-graph__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 6px 12px 0; flex: none; }
+.orb-graph__seg { flex: none; padding: 2px; gap: 2px; flex-wrap: nowrap; }
+.orb-graph__seg .orb-segment { flex: 0 0 auto; padding-inline: 10px; }
+.orb-graph__seg .orb-segment { white-space: nowrap; min-height: 28px; padding: 2px 10px; font-size: 12px; }
+.orb-graph__ctx { flex: 1 1 0; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--orb-text-muted); font: 400 11px/16px var(--orb-font-mono); }
+.orb-graph__plot { position: relative; flex: 1 1 auto; min-height: 96px; display: flex; overflow: hidden; }
 .orb-graph__plot > svg { display: block; }
-.orb-graph__caption { flex: none; margin: 0; padding: 0 12px 8px; color: var(--orb-text-muted); font-size: 11px; line-height: 15px; }
+.orb-graph__caption { flex: none; margin: 0; padding: 0 12px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--orb-text-muted); font-size: 11px; line-height: 15px; }
 .orb-tip {
   position: absolute;
   z-index: 5;
@@ -263,21 +324,25 @@
   }
   .orb-bottom[data-layout="wide"] {
     display: grid;
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.2fr);
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.15fr) minmax(0, 1.15fr);
     gap: var(--orb-gap);
   }
-  .orb-bottom--closed { height: 0; position: relative; }
-  .orb-bottom--closed .orb-instr__collapse {
-    position: absolute;
-    left: 50%;
-    bottom: -24px;
-    transform: translateX(-50%);
-    min-height: 36px;
-    white-space: nowrap;
-  }
   .orb-instr__panel { height: 100%; }
+  .orb-instr__head { min-height: 38px; padding: 0 4px 0 14px; }
+  .orb-instr__head > div:first-child { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  .orb-instr__head .orb-eyebrow { margin: 0; }
+  .orb-instr__head h2 { font-size: 14px; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .orb-instr__collapse { min-height: 32px; }
+  .orb-instr__tab { min-height: 28px; }
+  .orb-instr__tabs { padding: 2px; }
+}
+@media (min-width: 1024px) and (max-width: 1359px) {
+  .orb-col-maturity { display: none; }
 }
 @media (min-width: 1024px) and (max-width: 1279px) {
   .orb-instr__tab { padding: 0 12px; }
+  .orb-shell { --orb-row-h: 250px; }
+  .orb-shell[data-instruments="closed"] { --orb-row-h: 40px; }
 }
 .orb-bottom[data-layout="stacked"] #instrument-results .orb-instr-scroll { max-height: none; }
+.orb-bottom[data-layout="stacked"] .orb-itable__note { white-space: normal; }
