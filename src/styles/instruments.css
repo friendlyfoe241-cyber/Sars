@@ -297,6 +297,8 @@
 .orb-bottom[data-layout="stacked"] .orb-graph__plot { flex: none; height: 250px; }
 .orb-bottom[data-layout="stacked"] .orb-instr__body { flex: none; }
 @media (max-width: 767px) {
+  /* the table scrolls sideways inside its labelled region, never the page */
+  .orb-itable--obs { min-width: 560px; }
   .orb-bottom { padding: 0 12px 12px; gap: 12px; }
   .orb-itable__actions .orb-button { min-width: 44px; min-height: 44px; }
   .orb-itable__sort { min-height: 44px; }
@@ -335,6 +337,10 @@
   .orb-instr__collapse { min-height: 32px; }
   .orb-instr__tab { min-height: 28px; }
   .orb-instr__tabs { padding: 2px; }
+}
+@media (min-width: 1024px) and (max-height: 800px) {
+  .orb-shell { --orb-row-h: 220px; }
+  .orb-shell[data-instruments="closed"] { --orb-row-h: 40px; }
 }
 @media (min-width: 1024px) and (max-width: 1359px) {
   .orb-col-maturity { display: none; }
