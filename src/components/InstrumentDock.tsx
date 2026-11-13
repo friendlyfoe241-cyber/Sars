@@ -79,7 +79,7 @@ export default function InstrumentDock({
   if (!inline && !open) {
     return (
       <div className="vx-bottom" data-cover="bottom" data-open="false" inert={inert}>
-        <Glass className="lg-panel rounded-[28px]">
+        <Glass className="lg-panel vx-in-bottom rounded-[28px]">
           <div className="vx-instr" role="group" aria-label="Instruments, collapsed">
             <div className="vx-instr__head">
               <div className="vx-instr__tabs" role="group" aria-label="Open an instrument">
@@ -149,7 +149,7 @@ export default function InstrumentDock({
   if (inline) return <section aria-label="Instruments">{inner}</section>;
   return (
     <div className="vx-bottom" data-cover="bottom" data-open="true" inert={inert}>
-      <Glass as="section" aria-label="Instruments" className="lg-panel rounded-[28px]">
+      <Glass as="section" aria-label="Instruments" className="lg-panel vx-in-bottom rounded-[28px]">
         {inner}
       </Glass>
     </div>

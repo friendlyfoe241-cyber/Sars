@@ -1,4 +1,5 @@
-import { memo } from "react";
+import { memo, useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { changeColour } from "../lib/changeDetection";
 import type { ViewerDataset } from "../lib/data";
 import type { DisplayLayer } from "../lib/useChangeLayers";
@@ -18,6 +19,8 @@ interface MapLegendProps {
 const rgb = (c: readonly number[]) => `rgb(${c.join(",")})`;
 
 function MapLegend({ viewer, layer, pol, saturation, variant = "map" }: MapLegendProps) {
+  // On the map the legend can fold into a small "Legend" chip.
+  const [collapsed, setCollapsed] = useState(false);
   if (layer === "change" && saturation === null) return null;
   const change = layer === "change";
   const unit = change ? viewer.changeScale.unit : viewer.encoding.unit;
@@ -31,8 +34,8 @@ function MapLegend({ viewer, layer, pol, saturation, variant = "map" }: MapLegen
 
   const content = (
     <div className="vx-legend__body">
-      <div className="vx-eyebrow">Legend</div>
-      <div className="mt-1 font-display text-[15px] leading-5">
+      {variant === "inline" && <div className="vx-eyebrow">Legend</div>}
+      <div className={`${variant === "inline" ? "mt-1 " : ""}text-[14px] leading-5 font-semibold`}>
         {change ? "Radar brightness change" : "Radar brightness"}
       </div>
       <div className="vx-mono text-[11px] leading-4 text-vx-muted">
@@ -72,8 +75,38 @@ function MapLegend({ viewer, layer, pol, saturation, variant = "map" }: MapLegen
       </div>
     );
   }
+  if (collapsed) {
+    return (
+      <Glass
+        as="button"
+        type="button"
+        className="lg-panel vx-legend vx-legend--chip vx-in-left"
+        aria-expanded={false}
+        aria-label="Show map legend"
+        onClick={() => setCollapsed(false)}
+      >
+        <span className="vx-legend__chip">
+          <span className="vx-eyebrow">Legend</span>
+          <ChevronUp size={16} aria-hidden />
+        </span>
+      </Glass>
+    );
+  }
   return (
-    <Glass className="lg-panel vx-legend" role="group" aria-label="Map legend">
+    <Glass className="lg-panel vx-legend vx-in-left" role="group" aria-label="Map legend">
+      <div className="vx-legend__head">
+        <span className="vx-eyebrow">Legend</span>
+        <button
+          type="button"
+          className="vx-icon-button"
+          aria-expanded={true}
+          aria-label="Hide map legend"
+          title="Fold the legend into a chip"
+          onClick={() => setCollapsed(true)}
+        >
+          <ChevronDown size={18} aria-hidden />
+        </button>
+      </div>
       {content}
     </Glass>
   );

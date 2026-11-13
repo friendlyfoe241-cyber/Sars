@@ -93,6 +93,13 @@
 .leaflet-right .leaflet-control {
   margin-right: 0;
 }
+/* map furniture slides in from the right edge it is docked to */
+.leaflet-right .leaflet-control {
+  animation: vx-in-right var(--vx-dur) var(--vx-ease) backwards;
+}
+.vx-shell[data-hero="true"] .leaflet-right .leaflet-control {
+  animation: none;
+}
 .leaflet-top.leaflet-right .leaflet-control {
   margin-top: 0;
   margin-bottom: 8px;

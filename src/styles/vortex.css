@@ -81,7 +81,7 @@
   transition:
     background 0.2s ease,
     box-shadow 0.2s ease,
-    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transform var(--vx-dur) var(--vx-ease);
 }
 .vx-button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.17);
@@ -524,6 +524,30 @@
 }
 .vx-legend__body {
   padding: 12px 14px;
+}
+.vx-legend__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 2px 0 14px;
+}
+.vx-legend__head + .vx-legend__body {
+  padding-top: 0;
+}
+.vx-legend--chip {
+  width: auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--vx-text);
+  cursor: pointer;
+}
+.vx-legend__chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px 0 16px;
 }
 .vx-legend--inline {
   position: static;

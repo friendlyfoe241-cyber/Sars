@@ -368,7 +368,7 @@ export default function CompareDivider({
         <div ref={lineRef} className="vx-compare__line" aria-hidden />
         <Glass
           ref={beforeLabelRef}
-          className="lg-panel lg-label vx-compare__label vx-compare__label--before absolute"
+          className="lg-panel lg-label vx-in-left vx-compare__label vx-compare__label--before absolute"
           aria-hidden
         >
           <span className="vx-eyebrow">Before</span>
@@ -381,7 +381,7 @@ export default function CompareDivider({
         </Glass>
         <Glass
           ref={afterLabelRef}
-          className="lg-panel lg-label vx-compare__label vx-compare__label--after absolute"
+          className="lg-panel lg-label vx-in-right vx-compare__label vx-compare__label--after absolute"
           aria-hidden
         >
           <span className="vx-eyebrow">After</span>
