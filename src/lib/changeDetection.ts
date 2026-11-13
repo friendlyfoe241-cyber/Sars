@@ -165,3 +165,103 @@ export function changeColour(delta: number, saturation: number): [number, number
     Math.round(NEUTRAL[2] + (target[2] - NEUTRAL[2]) * k),
   ];
 }
+
+// ---------------------------------------------------------------------------
+// Per-date brightness distribution (temporal graph)
+// ---------------------------------------------------------------------------
+
+/** Number of 8-bit display DN values (0..255). */
+export const DN_BINS = 256;
+
+/** Distribution of display DN of one acquisition over the common-valid pixels. */
+export interface DateDistribution {
+  mean: number;
+  median: number;
+  p10: number;
+  p25: number;
+  p75: number;
+  p90: number;
+}
+
+export interface PerDateStats {
+  /** pixels valid in EVERY date */
+  validPixels: number;
+  /** pixels visited */
+  totalPixels: number;
+  validFraction: number;
+  /** one entry per input raster, in input order (callers pass chronological order) */
+  dates: DateDistribution[];
+}
+
+/** DN of the pixel at 0-based `rank` in ascending order. */
+function dnAtRank(counts: Uint32Array, rank: number): number {
+  let seen = 0;
+  for (let dn = 0; dn < DN_BINS; dn++) {
+    seen += counts[dn];
+    if (seen > rank) return dn;
+  }
+  return DN_BINS - 1;
+}
+
+/** Same interpolated percentile definition as `percentile` above, for a DN histogram. */
+function dnPercentile(counts: Uint32Array, valid: number, p: number): number {
+  const idx = (valid - 1) * p;
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  const vLo = dnAtRank(counts, lo);
+  const vHi = hi === lo ? vLo : dnAtRank(counts, hi);
+  return vLo + (vHi - vLo) * (idx - lo);
+}
+
+/**
+ * Display-DN distribution of each raster over the pixels that are valid in
+ * ALL rasters (same nodata rule as `deltaHistogram`: a pixel equal to
+ * `nodata` in any raster is excluded from every date).  One pass, a 256-bin
+ * histogram per date, exact (linearly interpolated) percentiles.  Values are
+ * NaN when no pixel is valid in all dates.  No interpolation across dates.
+ */
+export function perDateStats(
+  rasters: readonly Uint8ClampedArray[],
+  nodata: number,
+): PerDateStats {
+  const n = rasters.length;
+  const size = n > 0 ? rasters[0].length : 0;
+  for (const r of rasters) {
+    if (r.length !== size) throw new Error("rasters have different sizes");
+  }
+  const hists = rasters.map(() => new Uint32Array(DN_BINS));
+  let valid = 0;
+  for (let i = 0; i < size; i++) {
+    let ok = true;
+    for (let d = 0; d < n; d++) {
+      if (rasters[d][i] === nodata) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    valid++;
+    for (let d = 0; d < n; d++) hists[d][rasters[d][i]]++;
+  }
+  const dates = hists.map((counts): DateDistribution => {
+    if (valid === 0) {
+      return { mean: NaN, median: NaN, p10: NaN, p25: NaN, p75: NaN, p90: NaN };
+    }
+    let sum = 0;
+    for (let dn = 0; dn < DN_BINS; dn++) sum += counts[dn] * dn;
+    return {
+      mean: sum / valid,
+      median: dnPercentile(counts, valid, 0.5),
+      p10: dnPercentile(counts, valid, 0.1),
+      p25: dnPercentile(counts, valid, 0.25),
+      p75: dnPercentile(counts, valid, 0.75),
+      p90: dnPercentile(counts, valid, 0.9),
+    };
+  });
+  return {
+    validPixels: valid,
+    totalPixels: size,
+    validFraction: size > 0 ? valid / size : 0,
+    dates,
+  };
+}
