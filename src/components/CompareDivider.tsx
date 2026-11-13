@@ -45,6 +45,10 @@ export interface CompareDividerProps {
   channel: string;
 }
 
+function valueText(pct: number): string {
+  return `${pct}% — before on the left, after on the right`;
+}
+
 function overlaps(r: DOMRect, c: DOMRect): boolean {
   return (
     r.width > 0 &&
@@ -178,7 +182,7 @@ export default function CompareDivider({
 
       const pct = Math.round(frac * 100);
       grip.setAttribute("aria-valuenow", String(pct));
-      grip.setAttribute("aria-valuetext", `${pct}%`);
+      grip.setAttribute("aria-valuetext", valueText(pct));
     };
 
     const relayout = () => {
@@ -393,7 +397,7 @@ export default function CompareDivider({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(position.current * 100)}
-          aria-valuetext={`${Math.round(position.current * 100)}%`}
+          aria-valuetext={valueText(Math.round(position.current * 100))}
         >
           <MoveHorizontal size={20} aria-hidden />
         </div>

@@ -656,7 +656,6 @@ export default function App() {
   const selectedScene = (selectedSceneId && sceneById.get(selectedSceneId)) || null;
 
   // ---- instrument row: derived from the same key-gated active pair ------
-  const pairLoaded = viewState.kind === "ready" || viewState.kind === "no-valid-pixels";
   // Scenes known to lack usable rasters: every suggested pair containing the
   // scene is metadata-only, or the selected pair is known unavailable.
   const metadataOnlySceneIds = useMemo(() => {
@@ -893,7 +892,6 @@ export default function App() {
           <ObservationsTable
             status={viewState}
             scenes={scenes}
-            pairLoaded={pairLoaded}
             roleBefore={roleBefore}
             roleAfter={roleAfter}
             metadataOnlyIds={metadataOnlySceneIds}

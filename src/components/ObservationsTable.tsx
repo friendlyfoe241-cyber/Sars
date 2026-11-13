@@ -8,8 +8,6 @@ import { Spinner } from "./ui";
 interface ObservationsTableProps {
   status: ViewState;
   scenes: NisarScene[];
-  /** a comparison for the current selection is loaded: its scenes are listed first */
-  pairLoaded: boolean;
   roleBefore: string | null;
   roleAfter: string | null;
   /** scenes known to have no usable quicklook rasters */
@@ -48,7 +46,6 @@ function Message({ busy, children }: { busy?: boolean; children: string }) {
 function ObservationsTable({
   status,
   scenes,
-  pairLoaded,
   roleBefore,
   roleAfter,
   metadataOnlyIds,
@@ -65,11 +62,13 @@ function ObservationsTable({
     const sign = dir === "asc" ? 1 : -1;
     const byTime = (a: NisarScene, b: NisarScene) =>
       sign * (Date.parse(a.startTime) - Date.parse(b.startTime));
-    const isPair = (s: NisarScene) => pairLoaded && (s.id === roleBefore || s.id === roleAfter);
+    // assigned rows stay first as soon as a role is set (not only once the pair
+    // has loaded), so rows do not jump later under the pointer
+    const isPair = (s: NisarScene) => s.id === roleBefore || s.id === roleAfter;
     const first = scenes.filter(isPair).sort(byTime);
     const rest = scenes.filter((s) => !isPair(s)).sort(byTime);
     return [...first, ...rest];
-  }, [scenes, dir, pairLoaded, roleBefore, roleAfter]);
+  }, [scenes, dir, roleBefore, roleAfter]);
 
   if (status.kind === "choose-location") {
     return <Message>Search the catalogue to list observations</Message>;
@@ -102,7 +101,7 @@ function ObservationsTable({
         <table className="orb-itable">
           <caption>
             {rows.length} observation{rows.length === 1 ? "" : "s"} · times in UTC ·{" "}
-            {pairLoaded ? "comparison pair first, " : ""}
+            {roleBefore || roleAfter ? "Before / After rows first, " : ""}
             {dir === "asc" ? "oldest" : "newest"} first
             {rows.length > PAGE && (
               <>

@@ -28,7 +28,7 @@ function CollapseButton({ open, onToggle }: { open: boolean; onToggle: () => voi
       className="orb-button orb-button--ghost orb-instr__collapse"
       onClick={onToggle}
       aria-expanded={open}
-      aria-controls="instruments"
+      aria-controls={open ? "instruments" : undefined}
       aria-label={open ? "Hide instrument row" : "Show instrument row"}
     >
       {open ? <ChevronDown size={18} aria-hidden /> : <ChevronUp size={18} aria-hidden />}
