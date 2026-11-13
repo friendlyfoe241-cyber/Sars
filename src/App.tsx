@@ -148,7 +148,7 @@ export default function App() {
   polRef.current = pol;
 
   const layerRequest = useMemo(() => [layer], [layer]);
-  const { summary, urls, rendering } = useChangeLayers(activePair, channel, layerRequest);
+  const { summary, urls, rendering, saturation } = useChangeLayers(activePair, channel, layerRequest);
 
   const viewState = deriveViewState({
     aoi,
@@ -662,6 +662,7 @@ export default function App() {
             onPickLocation={handlePickLocation}
             layer={layer}
             pol={channel}
+            saturation={saturation}
             overlayUrl={urls[layer] ?? null}
             overlayBounds={activePair?.bounds ?? null}
             viewer={viewer}

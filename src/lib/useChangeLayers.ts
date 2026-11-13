@@ -36,6 +36,8 @@ export interface ChangeLayers {
   urls: LayerUrls;
   /** true while any requested layer is still being rendered */
   rendering: boolean;
+  /** change colour-scale saturation of `channel` (what the change layer uses), or null */
+  saturation: number | null;
 }
 
 const EMPTY_URLS: LayerUrls = {};
@@ -88,14 +90,14 @@ export function useChangeLayers(
 
   useEffect(() => {
     if (!pair || !rasters) return;
-    const { encoding, changeScale } = pair.viewer;
+    const { encoding } = pair.viewer;
     for (const layer of layerKey ? (layerKey.split(",") as DisplayLayer[]) : []) {
       const key = `${channel}:${layer}`;
       if (cache.urls.has(key) || cache.pending.has(key) || cache.failed.has(key)) continue;
       cache.pending.add(key);
       const job =
         layer === "change"
-          ? renderChange(rasters.before, rasters.after, encoding, changeScale.saturation)
+          ? renderChange(rasters.before, rasters.after, encoding, rasters.saturation)
           : renderObservation(layer === "before" ? rasters.before : rasters.after, encoding);
       job.then(
         (url) => {
@@ -132,5 +134,6 @@ export function useChangeLayers(
     summary,
     urls: Object.keys(urls).length > 0 ? urls : EMPTY_URLS,
     rendering,
+    saturation: rasters ? rasters.saturation : null,
   };
 }

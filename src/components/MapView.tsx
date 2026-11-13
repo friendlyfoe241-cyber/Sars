@@ -25,6 +25,8 @@ interface MapViewProps {
   onPickLocation: (lat: number, lon: number) => void;
   layer: DisplayLayer;
   pol: string;
+  /** change colour-scale saturation of `pol`; the legend describes this value */
+  saturation: number | null;
   overlayUrl: string | null;
   /** grid bounds of the loaded pair (the AOI it was prepared for) */
   overlayBounds: Aoi | null;
@@ -138,12 +140,14 @@ function Legend({
   viewer,
   layer,
   pol,
+  saturation,
 }: {
   viewer: ViewerDataset;
   layer: DisplayLayer;
   pol: string;
+  saturation: number | null;
 }) {
-  const saturation = viewer.changeScale.saturation;
+  if (layer === "change" && saturation === null) return null;
   const unit = layer === "change" ? viewer.changeScale.unit : viewer.encoding.unit;
 
   return (
@@ -165,7 +169,7 @@ function Legend({
                 key={i}
                 className="flex-1"
                 style={{
-                  backgroundColor: `rgb(${changeColour(t * saturation, saturation).join(",")})`,
+                  backgroundColor: `rgb(${changeColour(t * saturation!, saturation!).join(",")})`,
                 }}
               />
             ))}
@@ -286,6 +290,7 @@ function MapView({
   onPickLocation,
   layer,
   pol,
+  saturation,
   overlayUrl,
   overlayBounds,
   viewer,
@@ -347,7 +352,7 @@ function MapView({
         <FitController aoi={aoi} fitKey={fitKey} />
         <ScaleBar />
       </MapContainer>
-      {viewer && <Legend viewer={viewer} layer={layer} pol={pol} />}
+      {viewer && <Legend viewer={viewer} layer={layer} pol={pol} saturation={saturation} />}
       {drawMode && (
         <div className="absolute inset-x-0 top-3 z-[500] flex justify-center">
           <div className="rounded-[3px] border border-app-border bg-white px-3 py-1.5 text-[11px] text-app-text">

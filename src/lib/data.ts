@@ -52,7 +52,8 @@ export interface ViewerDataset {
   polarisations: string[];
   layers: Record<string, string>;
   encoding: RasterEncoding;
-  changeScale: { saturation: number; unit: string };
+  /** unit of the change layer; its colour-scale saturation is per channel (see ChannelRasters) */
+  changeScale: { unit: string };
   earlier: Acquisition;
   later: Acquisition;
   temporalBaselineDays: number;

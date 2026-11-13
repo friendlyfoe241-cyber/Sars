@@ -463,6 +463,8 @@ export type ChannelStatus = "ready" | "loading" | "unavailable";
 export interface ChannelRasters {
   before: Raster;
   after: Raster;
+  /** change colour-scale saturation (in the encoding's unit) for this channel */
+  saturation: number;
 }
 
 export interface PairDataset {
@@ -577,7 +579,7 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
     prepared.afterId === after.id;
 
   let channels: string[]; // candidate channels, in scene order
-  let loadChannel: (pol: string) => Promise<ChannelRasters>;
+  let loadChannel: (pol: string) => Promise<Omit<ChannelRasters, "saturation">>;
   let encoding: RasterEncoding = QUICKLOOK_ENCODING;
   let limitations: string[];
   let source: string;
@@ -643,7 +645,10 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
     try {
       const loaded = await loadChannel(pol);
       throwIfAborted(signal);
-      perPol[pol] = loaded;
+      perPol[pol] = {
+        ...loaded,
+        saturation: computeSaturation(loaded.before.red, loaded.after.red, encoding),
+      };
       channelStatus[pol] = "ready";
       return true;
     } catch (err) {
@@ -677,8 +682,6 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
   const calibrated = encoding.type === "db_linear";
   const layers: Record<string, string> = {};
   for (const pol of channels) layers[pol] = layerLabel(pol);
-  const firstRasters = perPol[first];
-  const saturation = computeSaturation(firstRasters.before.red, firstRasters.after.red, encoding);
 
   const viewer: ViewerDataset = {
     status: calibrated ? "nisar_calibrated" : "nisar_quicklook",
@@ -691,7 +694,7 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
     polarisations: channels,
     layers,
     encoding,
-    changeScale: { saturation, unit: encoding.unit },
+    changeScale: { unit: encoding.unit },
     earlier: acquisitionFromScene(before),
     later: acquisitionFromScene(after),
     temporalBaselineDays: baselineDays(before.startTime, after.startTime),
