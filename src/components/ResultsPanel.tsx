@@ -3,12 +3,15 @@ import { Section } from "./ui";
 import { formatDate, formatAcquisitionTime } from "../lib/data";
 import type { NisarScene } from "../lib/discovery";
 import { compatibilityLabel, pairIssues, type ScenePair } from "../lib/pairing";
+import { scenePairId } from "../lib/selection";
+import type { ViewState } from "../lib/viewState";
 
 interface ResultsPanelProps {
   scenes: NisarScene[];
   pairs: ScenePair[];
-  loading: boolean;
-  error: string | null;
+  /** suggested pairs (by scenePairId) whose rasters are known to be unavailable */
+  metadataOnlyPairIds: ReadonlySet<string>;
+  status: ViewState;
   truncated: boolean;
   dateFrom: string;
   dateTo: string;
@@ -122,8 +125,8 @@ const SceneRow = memo(function SceneRow({
 function ResultsPanel({
   scenes,
   pairs,
-  loading,
-  error,
+  metadataOnlyPairIds,
+  status,
   truncated,
   dateFrom,
   dateTo,
@@ -136,6 +139,8 @@ function ResultsPanel({
   onLoadPair,
   onLoadSuggested,
 }: ResultsPanelProps) {
+  const loading = status.kind === "searching";
+  const error = status.kind === "error" && status.source === "search" ? status.message : null;
   const [from, setFrom] = useState(dateFrom);
   const [to, setTo] = useState(dateTo);
 
@@ -191,7 +196,7 @@ function ResultsPanel({
       )}
       {error && <p className="mt-2 text-[11px] text-app-text">{error}</p>}
 
-      {!loading && !error && scenes.length === 0 && (
+      {status.kind === "no-observations" && (
         <p className="mt-2 text-[11px] leading-[1.5] text-app-muted">
           No NISAR observations found for this area and date range.
         </p>
@@ -213,9 +218,12 @@ function ResultsPanel({
                 Suggested pairs
               </div>
               <div className="mt-1 space-y-1">
-                {pairs.slice(0, 3).map((pair) => (
+                {pairs.slice(0, 3).map((pair) => {
+                  const id = scenePairId(pair.before.id, pair.after.id);
+                  const metadataOnly = metadataOnlyPairIds.has(id);
+                  return (
                   <div
-                    key={`${pair.before.id}|${pair.after.id}`}
+                    key={id}
                     className="flex items-center justify-between gap-2 rounded-[3px] border border-app-border px-2 py-1.5"
                   >
                     <div className="min-w-0">
@@ -232,20 +240,30 @@ function ResultsPanel({
                         {compatibilityLabel(pair.before)}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => onLoadSuggested(pair)}
-                      className="shrink-0 rounded-[3px] border border-app-border bg-white px-2 py-1 text-[11px] text-app-accent hover:bg-app-subtle"
-                    >
-                      Compare
-                    </button>
+                    {metadataOnly ? (
+                      <span
+                        title="Quicklook rasters are not available for this pair; only scene metadata can be shown."
+                        className="shrink-0 rounded-[3px] border border-app-border px-2 py-1 text-[11px] text-app-muted"
+                      >
+                        Metadata only
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onLoadSuggested(pair)}
+                        className="shrink-0 rounded-[3px] border border-app-border bg-white px-2 py-1 text-[11px] text-app-accent hover:bg-app-subtle"
+                      >
+                        Compare
+                      </button>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {pairs.length === 0 && (
+          {status.kind === "no-compatible-pair" && (
             <p className="mt-2.5 text-[11px] leading-[1.5] text-app-muted">
               Not enough compatible observations for change comparison in this
               area and date range — at least two acquisitions with matching

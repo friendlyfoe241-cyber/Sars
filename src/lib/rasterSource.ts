@@ -11,6 +11,7 @@
 // scripts/prepare_nisar_gcov.py (Earthdata login, Harmony subsetting or
 // lazy HDF5 reads); the browser never downloads large products.
 
+import { abortError, isAbortError, throwIfAborted } from "./abort";
 import type { Aoi } from "./aoi";
 import { computeSaturation } from "./changeDetection";
 import type {
@@ -22,6 +23,7 @@ import type {
 import { layerLabel, rasterUrl } from "./data";
 import type { NisarScene } from "./discovery";
 import { loadRaster, type Raster } from "./raster";
+import { METHOD_VERSION, pairKey } from "./selection";
 
 export const QUICKLOOK_ENCODING: RasterEncoding = {
   type: "quicklook_dn",
@@ -190,26 +192,90 @@ export function sampleToGrid(src: Raster, map: SampleIndex): Raster {
 // Small LRU of in-flight / completed loads.  Decoded rasters are large, so
 // the cache is bounded; failed loads are evicted so a transient network
 // error can be retried instead of being remembered for the whole session.
+//
+// Loads are shared between callers, so cancelling is reference counted: a
+// caller's AbortSignal detaches that caller immediately, and the underlying
+// fetch is aborted (and evicted) only when no caller is still waiting for it.
+// Callers that pass no signal pin the entry (it is never aborted).
 const FETCH_CACHE_LIMIT = 32;
-const fetchCache = new Map<string, Promise<unknown>>();
 
-function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
-  const hit = fetchCache.get(key) as Promise<T> | undefined;
-  if (hit) {
+interface CacheEntry<T> {
+  promise: Promise<T>;
+  controller: AbortController;
+  refs: number;
+  settled: boolean;
+}
+const fetchCache = new Map<string, CacheEntry<unknown>>();
+
+function cached<T>(
+  key: string,
+  load: (signal: AbortSignal) => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  let entry = fetchCache.get(key) as CacheEntry<T> | undefined;
+  if (entry) {
     fetchCache.delete(key);
-    fetchCache.set(key, hit); // mark as most recently used
-    return hit;
+    fetchCache.set(key, entry); // mark as most recently used
+  } else {
+    const controller = new AbortController();
+    const created: CacheEntry<T> = {
+      promise: load(controller.signal),
+      controller,
+      refs: 0,
+      settled: false,
+    };
+    entry = created;
+    fetchCache.set(key, created);
+    created.promise.then(
+      () => {
+        created.settled = true;
+      },
+      () => {
+        created.settled = true;
+        if (fetchCache.get(key) === created) fetchCache.delete(key);
+      },
+    );
+    if (fetchCache.size > FETCH_CACHE_LIMIT) {
+      const oldest = fetchCache.keys().next().value;
+      if (oldest !== undefined) fetchCache.delete(oldest);
+    }
   }
-  const p = load();
-  fetchCache.set(key, p);
-  p.catch(() => {
-    if (fetchCache.get(key) === p) fetchCache.delete(key);
+
+  const e = entry;
+  if (!signal) {
+    e.refs++; // pinned: never aborted on behalf of another caller
+    return e.promise;
+  }
+  e.refs++;
+  return new Promise<T>((resolve, reject) => {
+    const detach = () => {
+      e.refs--;
+      if (e.refs <= 0 && !e.settled) {
+        e.controller.abort();
+        if (fetchCache.get(key) === e) fetchCache.delete(key);
+      }
+    };
+    if (signal.aborted) {
+      detach();
+      reject(abortError());
+      return;
+    }
+    const onAbort = () => {
+      detach();
+      reject(abortError());
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    e.promise.then(
+      (v) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(v);
+      },
+      (err) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
   });
-  if (fetchCache.size > FETCH_CACHE_LIMIT) {
-    const oldest = fetchCache.keys().next().value;
-    if (oldest !== undefined) fetchCache.delete(oldest);
-  }
-  return p;
 }
 
 type SceneStatus = { sceneId: string; status: RasterAvailability };
@@ -224,14 +290,19 @@ export class RasterUnavailableError extends Error {
   }
 }
 
-async function fetchText(url: string): Promise<string> {
-  const res = await fetch(url);
+async function fetchText(url: string, signal?: AbortSignal): Promise<string> {
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.text();
 }
 
-function fetchKml(scene: NisarScene, pol: string, url: string): Promise<string> {
-  return cached(`kml:${scene.id}:${pol}`, () => fetchText(url));
+function fetchKml(
+  scene: NisarScene,
+  pol: string,
+  url: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  return cached(`kml:${scene.id}:${pol}`, (sig) => fetchText(url, sig), signal);
 }
 
 export interface QuicklookSource {
@@ -239,30 +310,72 @@ export interface QuicklookSource {
   quad: Quad;
 }
 
-export function fetchSceneQuicklook(scene: NisarScene, pol: string): Promise<QuicklookSource> {
-  return cached(`ql:${scene.id}:${pol}`, async () => {
-    const pngUrl = scene.quicklooks.png[pol];
-    const kmlUrl = scene.quicklooks.kml[pol];
-    if (!pngUrl) throw new Error(`No quicklook for ${pol}.`);
-    const [raster, kmlText] = await Promise.all([
-      loadRaster(pngUrl),
-      // any channel's KML has the same geometry; fall back to the others
-      fetchKml(scene, pol, kmlUrl).catch(() => firstKml(scene, pol)),
-    ]);
-    return { raster, quad: parseKmlQuad(kmlText) };
-  });
+export function fetchSceneQuicklook(
+  scene: NisarScene,
+  pol: string,
+  signal?: AbortSignal,
+): Promise<QuicklookSource> {
+  return cached(
+    `ql:${scene.id}:${pol}`,
+    async (sig) => {
+      const pngUrl = scene.quicklooks.png[pol];
+      const kmlUrl = scene.quicklooks.kml[pol];
+      if (!pngUrl) throw new Error(`No quicklook for ${pol}.`);
+      const [raster, kmlText] = await Promise.all([
+        loadRaster(pngUrl, sig),
+        // any channel's KML has the same geometry; fall back to the others
+        fetchKml(scene, pol, kmlUrl, sig).catch((err) => {
+          if (isAbortError(err) || sig.aborted) throw err;
+          return firstKml(scene, pol, sig);
+        }),
+      ]);
+      return { raster, quad: parseKmlQuad(kmlText) };
+    },
+    signal,
+  );
 }
 
-async function firstKml(scene: NisarScene, skipPol: string): Promise<string> {
+async function firstKml(scene: NisarScene, skipPol: string, signal?: AbortSignal): Promise<string> {
   for (const [pol, url] of Object.entries(scene.quicklooks.kml)) {
     if (pol === skipPol) continue;
     try {
-      return await fetchKml(scene, pol, url);
-    } catch {
+      return await fetchKml(scene, pol, url, signal);
+    } catch (err) {
+      if (isAbortError(err) || signal?.aborted) throw err;
       /* try next */
     }
   }
   throw new Error(`No georeferencing KML for ${scene.id}.`);
+}
+
+/**
+ * Can the scene metadata alone tell that no quicklook can be fetched?  True
+ * when none of the scene's own channels has a quicklook URL (discovery fills
+ * the deterministic browse URL for HH/HV/VV/VH, so this only catches other
+ * channel sets).  This is a static check; it never touches the network.
+ */
+export function sceneHasQuicklook(scene: NisarScene): boolean {
+  return scene.polarisations.some((pol) => Boolean(scene.quicklooks.png[pol]));
+}
+
+/**
+ * Static raster availability of a pair, decided from scene metadata and the
+ * prepared dataset only (no network): "metadata-only" when the two scenes
+ * share no channel with a quicklook on both sides and no prepared dataset
+ * covers the pair.
+ */
+export function pairQuicklookStatus(
+  before: NisarScene,
+  after: NisarScene,
+  prepared?: PreparedDataset | null,
+): "available" | "metadata-only" {
+  if (prepared && prepared.beforeId === before.id && prepared.afterId === after.id) {
+    return "available";
+  }
+  const usable = commonPolarisations(before, after).some(
+    (pol) => before.quicklooks.png[pol] && after.quicklooks.png[pol],
+  );
+  return usable ? "available" : "metadata-only";
 }
 
 // ---------------------------------------------------------------------------
@@ -271,8 +384,18 @@ async function firstKml(scene: NisarScene, skipPol: string): Promise<string> {
 
 export interface PairDataset {
   viewer: ViewerDataset;
-  /** grid bounds (equal to the requested AOI) */
+  /** grid bounds (equal to the AOI this dataset was built for) */
   bounds: Aoi;
+  /** product ids of the scenes this dataset was built from */
+  beforeId: string;
+  afterId: string;
+  /**
+   * pairKey() of the selection this dataset was built for: AOI bounds,
+   * before/after ids and METHOD_VERSION, but not the channel (the dataset
+   * holds every shared channel in `perPol`).  It is displayed only while it
+   * equals the key of the current selection.
+   */
+  key: string;
   perPol: Record<string, { before: Raster; after: Raster }>;
 }
 
@@ -316,6 +439,8 @@ export interface BuildPairOptions {
   prepared?: PreparedDataset | null;
   areaLabel: string;
   outputWidth?: number;
+  /** abort to drop the load; rejects with an AbortError */
+  signal?: AbortSignal;
 }
 
 /**
@@ -325,7 +450,8 @@ export interface BuildPairOptions {
  * prepared, so callers can show metadata and a processing status instead.
  */
 export async function buildPairDataset(opts: BuildPairOptions): Promise<PairDataset> {
-  const { before, after, aoi, areaLabel } = opts;
+  const { before, after, aoi, areaLabel, signal } = opts;
+  throwIfAborted(signal);
   const outWidth = opts.outputWidth ?? DEFAULT_OUTPUT_WIDTH;
   const metadataOnly = (): SceneStatus[] => [
     { sceneId: before.id, status: "metadata-only" },
@@ -366,7 +492,7 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
           const [b, a] = await Promise.all(
             [entry.before, entry.after].map((path) => {
               const url = rasterUrl(path);
-              return cached(`prepared:${url}`, () => loadRaster(url));
+              return cached(`prepared:${url}`, (sig) => loadRaster(url, sig), signal);
             }),
           );
           return { pol, before: b, after: a };
@@ -378,6 +504,7 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
         metadataOnly(),
       );
     }
+    throwIfAborted(signal);
     limitations = manifest.dataset.limitations;
     source = manifest.dataset.source;
   } else {
@@ -385,8 +512,8 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
       pols.map(async (pol) => {
         try {
           const [b, a] = await Promise.all([
-            fetchSceneQuicklook(before, pol),
-            fetchSceneQuicklook(after, pol),
+            fetchSceneQuicklook(before, pol, signal),
+            fetchSceneQuicklook(after, pol, signal),
           ]);
           if (b.raster.width !== a.raster.width || b.raster.height !== a.raster.height) {
             throw new Error("The two quicklooks are not on the same grid.");
@@ -395,11 +522,13 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
             throw new Error("The two quicklooks have different georeferencing.");
           }
           return { pol, before: b.raster, after: a.raster, quad: b.quad };
-        } catch {
+        } catch (err) {
+          if (isAbortError(err) || signal?.aborted) throw err;
           return null;
         }
       }),
     );
+    throwIfAborted(signal);
     const usable = loaded.filter((entry) => entry !== null);
     if (usable.length === 0) {
       throw new RasterUnavailableError(
@@ -459,5 +588,13 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
     limitations,
   };
 
-  return { viewer, bounds: aoi, perPol };
+  throwIfAborted(signal);
+  return {
+    viewer,
+    bounds: aoi,
+    beforeId: before.id,
+    afterId: after.id,
+    key: pairKey({ aoi, beforeId: before.id, afterId: after.id, methodVersion: METHOD_VERSION }),
+    perPol,
+  };
 }

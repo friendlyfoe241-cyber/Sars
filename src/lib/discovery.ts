@@ -6,6 +6,7 @@
 // (the service is CORS-enabled).  Raster downloads that need Earthdata
 // authentication are handled separately and never in the client.
 
+import { abortable } from "./abort";
 import { aoiPolygon, type Aoi } from "./aoi";
 
 const SEARCH_API = "https://api.daac.asf.alaska.edu/services/search/param";
@@ -203,7 +204,19 @@ function queryKey(q: DiscoveryQuery): string {
   return `${q.aoi.west.toFixed(3)},${q.aoi.south.toFixed(3)},${q.aoi.east.toFixed(3)},${q.aoi.north.toFixed(3)}|${q.start ?? ""}|${q.end ?? ""}|${q.maxResults ?? ""}`;
 }
 
-export function searchNisarGcov(query: DiscoveryQuery): Promise<DiscoveryResult> {
+/**
+ * The underlying request is shared between identical concurrent searches, so
+ * `signal` only detaches this caller (it rejects with an AbortError at once);
+ * the shared request still completes and fills the cache.
+ */
+export function searchNisarGcov(
+  query: DiscoveryQuery,
+  signal?: AbortSignal,
+): Promise<DiscoveryResult> {
+  return abortable(runSearchShared(query), signal);
+}
+
+function runSearchShared(query: DiscoveryQuery): Promise<DiscoveryResult> {
   const key = queryKey(query);
   const cached = cache.get(key);
   if (cached) return Promise.resolve(cached);

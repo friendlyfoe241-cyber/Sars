@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isAbortError } from "./lib/abort";
 import ControlPanel from "./components/ControlPanel";
 import MapView from "./components/MapView";
 import ObservationInfo, {
@@ -27,14 +28,29 @@ import {
 import { searchNisarGcov, type NisarScene } from "./lib/discovery";
 import { geocodePlace } from "./lib/geocode";
 import { findCompatiblePairs, type ScenePair } from "./lib/pairing";
-import { buildPairDataset, type PairDataset } from "./lib/rasterSource";
+import {
+  buildPairDataset,
+  pairQuicklookStatus,
+  RasterUnavailableError,
+} from "./lib/rasterSource";
+import {
+  METHOD_VERSION,
+  aoiKey,
+  pairKey,
+  scenePairId,
+  selectionKey,
+} from "./lib/selection";
 import { useChangeLayers, type DisplayLayer } from "./lib/useChangeLayers";
+import {
+  IDLE_PAIR,
+  deriveViewState,
+  selectCurrentPair,
+  type PairState,
+} from "./lib/viewState";
 
-type PairState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "ready"; dataset: PairDataset }
-  | { status: "error"; message: string };
+const IDLE_AI: AiState = { status: "idle" };
+const METADATA_ONLY_MESSAGE =
+  "Quicklook rasters for this pair are not available. Scene metadata is shown instead of a comparison.";
 
 export default function App() {
   // ---- example dataset (public/data) ---------------------------------
@@ -63,23 +79,142 @@ export default function App() {
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [roleBefore, setRoleBefore] = useState<string | null>(null);
   const [roleAfter, setRoleAfter] = useState<string | null>(null);
-  const [pairState, setPairState] = useState<PairState>({ status: "idle" });
+  const [pairState, setPairState] = useState<PairState>(IDLE_PAIR);
+  // Pairs whose rasters turned out to be unavailable (learned from a failed
+  // load); listed as "Metadata only" from then on.
+  const [unavailablePairs, setUnavailablePairs] = useState<ReadonlySet<string>>(new Set());
 
   // ---- viewer --------------------------------------------------------
   const [pol, setPol] = useState("");
   const [layer, setLayer] = useState<DisplayLayer>("change");
-  const [ai, setAi] = useState<AiState>({ status: "idle" });
+  // The explanation is stored with the selection key it was requested for
+  // and only shown while that key is the current one.
+  const [aiEntry, setAiEntry] = useState<{ key: string; state: AiState } | null>(null);
 
-  // Latest-request-wins guards: a slow earlier search or pair load must not
-  // overwrite the result of a newer one.
+  // Cancellation: every search / pair load has an AbortController and a
+  // sequence number.  The controller drops the fetches; the sequence check is
+  // the final guard against a late response being applied.
   const searchSeq = useRef(0);
   const pairSeq = useRef(0);
+  const searchAbort = useRef<AbortController | null>(null);
+  const pairAbort = useRef<AbortController | null>(null);
+  const aiRequest = useRef<string | null>(null);
+  const aoiRef = useRef<Aoi | null>(null);
 
-  const pairs = useMemo(() => findCompatiblePairs(scenes, { aoi: aoi ?? undefined }), [scenes, aoi]);
-  const pairDataset: PairDataset | null =
-    pairState.status === "ready" ? pairState.dataset : null;
-  const viewer: ViewerDataset | null = pairDataset?.viewer ?? null;
-  const { summary, overlayUrl, rendering } = useChangeLayers(pairDataset, pol, layer);
+  // ---- selection identity and everything derived from it -------------
+  // Suggested pairs; ones known to lack rasters sort last and are labelled.
+  const { pairs, metadataOnlyPairIds } = useMemo(() => {
+    const raw = findCompatiblePairs(scenes, { aoi: aoi ?? undefined });
+    const metadataOnly = new Set<string>();
+    for (const p of raw) {
+      const id = scenePairId(p.before.id, p.after.id);
+      if (
+        pairQuicklookStatus(p.before, p.after, example) === "metadata-only" ||
+        unavailablePairs.has(id)
+      ) {
+        metadataOnly.add(id);
+      }
+    }
+    const sorted = [...raw].sort(
+      (a, b) =>
+        Number(metadataOnly.has(scenePairId(a.before.id, a.after.id))) -
+        Number(metadataOnly.has(scenePairId(b.before.id, b.after.id))),
+    );
+    return { pairs: sorted, metadataOnlyPairIds: metadataOnly };
+  }, [scenes, aoi, example, unavailablePairs]);
+
+  const pairBase = useMemo(
+    () =>
+      aoi && roleBefore && roleAfter
+        ? { aoi, beforeId: roleBefore, afterId: roleAfter, methodVersion: METHOD_VERSION }
+        : null,
+    [aoi, roleBefore, roleAfter],
+  );
+  const currentPairKey = pairBase ? pairKey(pairBase) : null;
+  // The only place a loaded result is matched against the selection.
+  const activePair = selectCurrentPair(pairState, currentPairKey);
+  const viewer: ViewerDataset | null = activePair?.viewer ?? null;
+  // The channel is always one the active pair actually holds.
+  const channel = !activePair
+    ? ""
+    : activePair.viewer.polarisations.includes(pol)
+      ? pol
+      : (activePair.viewer.polarisations[0] ?? "");
+  const currentSelectionKey = pairBase ? selectionKey({ ...pairBase, channel }) : null;
+
+  const layerRequest = useMemo(() => [layer], [layer]);
+  const { summary, urls, rendering } = useChangeLayers(activePair, channel, layerRequest);
+
+  const viewState = deriveViewState({
+    aoi,
+    searching,
+    searched,
+    searchError,
+    sceneCount: scenes.length,
+    suggestedPairCount: pairs.length,
+    pairState,
+    currentPairKey,
+    activePair,
+    summary,
+  });
+  const ai: AiState =
+    aiEntry && aiEntry.key === currentSelectionKey ? aiEntry.state : IDLE_AI;
+
+  // ---- invalidation ---------------------------------------------------
+  const abortPairLoad = useCallback(() => {
+    pairSeq.current++;
+    pairAbort.current?.abort();
+    pairAbort.current = null;
+  }, []);
+
+  /** Drop the loaded pair, in-flight load and explanation (not the scenes). */
+  const clearPair = useCallback(() => {
+    abortPairLoad();
+    aiRequest.current = null;
+    setPairState(IDLE_PAIR);
+    setAiEntry(null);
+  }, [abortPairLoad]);
+
+  /**
+   * The single entry point for every AOI change.  When the AOI actually
+   * changes, one batched update drops the scene list (it belongs to the
+   * previous area), role assignments, loaded pair, statistics, overlay (all
+   * derived from the pair) and the explanation, and cancels in-flight search
+   * and pair loads.
+   */
+  const commitAoi = useCallback(
+    (next: Aoi, opts: { fit?: boolean } = {}) => {
+      const previous = aoiRef.current;
+      if (!previous || aoiKey(previous) !== aoiKey(next)) {
+        aoiRef.current = next;
+        searchSeq.current++;
+        searchAbort.current?.abort();
+        searchAbort.current = null;
+        abortPairLoad();
+        aiRequest.current = null;
+        setAoi(next);
+        setSearching(false);
+        setSearched(false);
+        setSearchError(null);
+        setScenes([]);
+        setTruncated(false);
+        setSelectedSceneId(null);
+        setRoleBefore(null);
+        setRoleAfter(null);
+        setPairState(IDLE_PAIR);
+        setAiEntry(null);
+      }
+      if (opts.fit) setFitKey((k) => k + 1);
+    },
+    [abortPairLoad],
+  );
+
+  // A selection change (before/after assignment) invalidates any pair load
+  // that belongs to another selection.  Display is already guarded by the key
+  // check above; this releases the stale data and cancels the fetches.
+  useEffect(() => {
+    if (pairState.status !== "idle" && pairState.key !== currentPairKey) clearPair();
+  }, [pairState, currentPairKey, clearPair]);
 
   // ---- startup: the prepared example dataset -------------------------
   useEffect(() => {
@@ -93,8 +228,9 @@ export default function App() {
           afterId: m.acquisitionPair.later.productId,
         });
         // The example study area is the initial AOI only; nothing is loaded
-        // or searched until the user asks for it.
-        setAoi((current) => current ?? m.studyArea.bounds);
+        // or searched until the user asks for it.  The first AOI frames the
+        // map once; if the user already chose an area, leave everything be.
+        if (!aoiRef.current) commitAoi(m.studyArea.bounds, { fit: true });
         setLocationLabel((current) => current || `${m.studyArea.name}, ${m.studyArea.country}`);
       })
       .catch(() => {
@@ -103,17 +239,16 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [commitAoi]);
 
   // ---- location and AOI handlers ------------------------------------
   const applyLocation = useCallback(
     (lat: number, lon: number, label: string) => {
-      setAoi(aoiFromCenter(lat, lon, aoiSizeKm));
+      commitAoi(aoiFromCenter(lat, lon, aoiSizeKm), { fit: true });
       setLocationLabel(label);
       setLocationError(null);
-      setFitKey((k) => k + 1);
     },
-    [aoiSizeKm],
+    [aoiSizeKm, commitAoi],
   );
 
   const handleLocationSearch = useCallback(async () => {
@@ -157,37 +292,40 @@ export default function App() {
   );
 
   const handleAoiDrawn = useCallback((drawn: Aoi) => {
-    setAoi(clampAoi(drawn));
+    commitAoi(clampAoi(drawn)); // drawing never moves the camera
     setDrawMode(false);
     setLocationLabel("Custom area of interest");
     setLocationError(null);
-  }, []);
+  }, [commitAoi]);
 
   const handleAoiSizeChange = useCallback(
     (km: number) => {
       setAoiSizeKm(km);
       if (aoi) {
         const [lat, lon] = aoiCenter(aoi);
-        setAoi(aoiFromCenter(lat, lon, km));
+        commitAoi(aoiFromCenter(lat, lon, km));
       }
     },
-    [aoi],
+    [aoi, commitAoi],
   );
 
   const handleExample = useCallback(() => {
     if (!example) return;
     const m = example.manifest;
-    setAoi(m.studyArea.bounds);
+    commitAoi(m.studyArea.bounds, { fit: true });
     setLocationLabel(`${m.studyArea.name}, ${m.studyArea.country}`);
     setQuery(`${m.studyArea.name}`);
-    setFitKey((k) => k + 1);
-  }, [example]);
+  }, [example, commitAoi]);
 
   // ---- catalogue search ---------------------------------------------
   const runSearch = useCallback(
     async (bounds: Aoi, from: string, to: string) => {
       const seq = ++searchSeq.current;
-      pairSeq.current++; // abandon any pair load started for the old results
+      searchAbort.current?.abort();
+      const controller = new AbortController();
+      searchAbort.current = controller;
+      abortPairLoad(); // abandon any pair load started for the old results
+      aiRequest.current = null;
       setSearching(true);
       setSearchError(null);
       setSearched(true);
@@ -196,19 +334,22 @@ export default function App() {
       setSelectedSceneId(null);
       setRoleBefore(null);
       setRoleAfter(null);
-      setPairState({ status: "idle" });
-      setAi({ status: "idle" });
+      setPairState(IDLE_PAIR);
+      setAiEntry(null);
       try {
-        const result = await searchNisarGcov({
-          aoi: bounds,
-          start: from || undefined,
-          end: to || undefined,
-        });
+        const result = await searchNisarGcov(
+          {
+            aoi: bounds,
+            start: from || undefined,
+            end: to || undefined,
+          },
+          controller.signal,
+        );
         if (seq !== searchSeq.current) return;
         setScenes(result.scenes);
         setTruncated(result.truncated);
       } catch (err) {
-        if (seq !== searchSeq.current) return;
+        if (seq !== searchSeq.current || isAbortError(err)) return;
         setSearchError(
           err instanceof Error ? err.message : "Catalogue search failed.",
         );
@@ -216,7 +357,7 @@ export default function App() {
         if (seq === searchSeq.current) setSearching(false);
       }
     },
-    [],
+    [abortPairLoad],
   );
 
   const handleSearchData = useCallback(() => {
@@ -237,9 +378,25 @@ export default function App() {
   const loadPair = useCallback(
     async (before: NisarScene, after: NisarScene) => {
       if (!aoi) return;
+      const key = pairKey({
+        aoi,
+        beforeId: before.id,
+        afterId: after.id,
+        methodVersion: METHOD_VERSION,
+      });
+      abortPairLoad();
+      aiRequest.current = null;
+      setAiEntry(null);
+      // Metadata alone can say the pair has no quicklook: no network needed.
+      if (pairQuicklookStatus(before, after, example) === "metadata-only") {
+        setPairState({ status: "error", key, message: METADATA_ONLY_MESSAGE, metadataOnly: true });
+        return;
+      }
       const seq = ++pairSeq.current;
-      setPairState({ status: "loading" });
-      setAi({ status: "idle" });
+      const controller = new AbortController();
+      pairAbort.current = controller;
+      // The previous pair's results are gone before the first await.
+      setPairState({ status: "loading", key });
       try {
         const dataset = await buildPairDataset({
           before,
@@ -247,14 +404,21 @@ export default function App() {
           aoi,
           prepared: example,
           areaLabel: locationLabel || formatAoi(aoi),
+          signal: controller.signal,
         });
         if (seq !== pairSeq.current) return;
-        setPairState({ status: "ready", dataset });
+        setPairState({ status: "ready", key, dataset });
         setPol(dataset.viewer.polarisations[0] ?? "");
       } catch (err) {
-        if (seq !== pairSeq.current) return;
+        if (seq !== pairSeq.current || isAbortError(err)) return;
+        const metadataOnly = err instanceof RasterUnavailableError;
+        if (metadataOnly) {
+          setUnavailablePairs((cur) => new Set(cur).add(scenePairId(before.id, after.id)));
+        }
         setPairState({
           status: "error",
+          key,
+          metadataOnly,
           message:
             err instanceof Error
               ? err.message
@@ -262,7 +426,7 @@ export default function App() {
         });
       }
     },
-    [aoi, example, locationLabel],
+    [aoi, example, locationLabel, abortPairLoad],
   );
 
   const handleAssignRole = useCallback(
@@ -295,8 +459,14 @@ export default function App() {
 
   // ---- Gemini explain ------------------------------------------------
   const handleExplain = useCallback(async () => {
-    if (!viewer || !summary) return;
-    setAi({ status: "loading" });
+    if (!viewer || !summary || !currentSelectionKey) return;
+    const key = currentSelectionKey;
+    aiRequest.current = key;
+    // A response is applied only if no newer request or invalidation replaced it.
+    const settle = (state: AiState) => {
+      if (aiRequest.current === key) setAiEntry({ key, state });
+    };
+    setAiEntry({ key, state: { status: "loading" } });
     try {
       const res = await fetch("/api/explain-change", {
         method: "POST",
@@ -310,7 +480,7 @@ export default function App() {
           acquisitionPair: {
             band: viewer.band,
             productType: viewer.productType,
-            polarisation: pol,
+            polarisation: channel,
             temporalBaselineDays: viewer.temporalBaselineDays,
             earlier: viewer.earlier.startTime,
             later: viewer.later.startTime,
@@ -325,7 +495,7 @@ export default function App() {
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setAi({
+        settle({
           status: "error",
           message:
             body && typeof body.error === "string"
@@ -336,21 +506,21 @@ export default function App() {
       }
       const exp = body?.explanation as AiExplanation | undefined;
       if (!exp) {
-        setAi({
+        settle({
           status: "error",
           message: "Unexpected response from the explanation service.",
         });
         return;
       }
-      setAi({ status: "done", explanation: exp });
+      settle({ status: "done", explanation: exp });
     } catch {
-      setAi({
+      settle({
         status: "error",
         message:
           "The explanation endpoint is not available. In local development run `vercel dev` instead of `npm run dev`.",
       });
     }
-  }, [viewer, summary, pol]);
+  }, [viewer, summary, channel, currentSelectionKey]);
 
   const handleToggleDraw = useCallback(() => setDrawMode((d) => !d), []);
 
@@ -397,8 +567,8 @@ export default function App() {
             <ResultsPanel
               scenes={scenes}
               pairs={pairs}
-              loading={searching}
-              error={searchError}
+              metadataOnlyPairIds={metadataOnlyPairIds}
+              status={viewState}
               truncated={truncated}
               dateFrom={dateFrom}
               dateTo={dateTo}
@@ -413,42 +583,49 @@ export default function App() {
             />
           )}
 
-          {pairState.status === "loading" && (
+          {viewState.kind === "loading-raster" && (
             <div className="border-b border-app-border px-4 py-3.5 text-[11px] text-app-muted">
               Preparing rasters for the selected pair…
             </div>
           )}
 
-          {pairState.status === "error" && (
+          {(viewState.kind === "metadata-only" ||
+            (viewState.kind === "error" && viewState.source === "pair")) && (
             <div className="border-b border-app-border px-4 py-3.5">
               <h2 className="text-[11px] font-medium tracking-[0.06em] text-app-muted uppercase">
                 Comparison status
               </h2>
               <p className="mt-2 text-[11px] leading-[1.5] text-app-text">
-                {pairState.message}
+                {viewState.message}
               </p>
             </div>
           )}
 
-          {pairState.status === "ready" && (
+          {(viewState.kind === "ready" || viewState.kind === "no-valid-pixels") && (
             <>
+              {viewState.kind === "no-valid-pixels" && (
+                <div className="border-b border-app-border px-4 py-3.5 text-[11px] leading-[1.5] text-app-text">
+                  No pixel is valid in both observations for this area and
+                  channel, so no difference is calculated.
+                </div>
+              )}
               <ControlPanel
-                dataset={pairState.dataset.viewer}
-                pol={pol}
+                dataset={viewState.dataset.viewer}
+                pol={channel}
                 onPolChange={setPol}
                 layer={layer}
                 onLayerChange={setLayer}
                 computing={rendering}
               />
               <ObservationInfo
-                dataset={pairState.dataset.viewer}
-                pol={pol}
+                dataset={viewState.dataset.viewer}
+                pol={channel}
                 summary={summary}
                 ai={ai}
                 onExplain={handleExplain}
               />
               <div className="mt-auto px-4 py-3 text-[10px] leading-[1.5] text-app-muted">
-                {pairState.dataset.viewer.limitations[0]}
+                {viewState.dataset.viewer.limitations[0]}
               </div>
             </>
           )}
@@ -464,9 +641,9 @@ export default function App() {
             onAoiDrawn={handleAoiDrawn}
             onPickLocation={handlePickLocation}
             layer={layer}
-            pol={pol}
-            overlayUrl={overlayUrl}
-            overlayBounds={pairDataset?.bounds ?? null}
+            pol={channel}
+            overlayUrl={urls[layer] ?? null}
+            overlayBounds={activePair?.bounds ?? null}
             viewer={viewer}
             fitKey={fitKey}
           />
