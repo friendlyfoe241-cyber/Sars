@@ -620,10 +620,8 @@ export default function App() {
   const handleFit = useCallback(() => setFitKey((k) => k + 1), []);
   const handleToggleControls = useCallback(() => setControlsOpen((o) => !o), []);
   const handleToggleDetails = useCallback(() => setDetailsOpen((o) => !o), []);
-  // Re-fit after the row opens or closes so the AOI stays clear of it.
   const handleToggleInstruments = useCallback(() => {
     setInstrOpen((o) => !o);
-    setFitKey((k) => k + 1);
   }, []);
   const handleShowResults = useCallback(() => {
     setInstrOpen(true);
@@ -829,6 +827,7 @@ export default function App() {
         overlayBounds={activePair?.bounds ?? null}
         viewer={viewer}
         fitKey={fitKey}
+        layoutKey={`${controlsOpen}|${detailsOpen}|${rowVisible}`}
         roleBefore={roleBefore}
         roleAfter={roleAfter}
         showAllFootprints={showAllFootprints}

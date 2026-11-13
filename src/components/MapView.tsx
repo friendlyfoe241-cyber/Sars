@@ -16,6 +16,7 @@ import type { NisarScene } from "../lib/discovery";
 import type { ViewerDataset } from "../lib/data";
 import type { DisplayLayer, DisplayMode, LayerUrls } from "../lib/useChangeLayers";
 import { formatDate } from "../lib/data";
+import { coveredInsets } from "../lib/freeArea";
 import MapLegend from "./MapLegend";
 import CompareDivider from "./CompareDivider";
 import { Spinner } from "./ui";
@@ -45,6 +46,8 @@ interface MapViewProps {
   viewer: ViewerDataset | null;
   /** bump to re-fit the map to the AOI */
   fitKey: number;
+  /** changes when a panel opens or closes (see FitController) */
+  layoutKey: string;
   /** before / after scene ids of the loaded pair (footprints kept visible) */
   roleBefore: string | null;
   roleAfter: string | null;
@@ -147,26 +150,90 @@ function boundsOf(aoi: Aoi): L.LatLngBoundsExpression {
   ];
 }
 
-/** Recentre the map when the AOI changes or a search completes. */
-function FitController({ aoi, fitKey }: { aoi: Aoi | null; fitKey: number }) {
+const FIT_GAP = 16;
+
+/**
+ * Fit the AOI into the real free area of the map: the padding on every side
+ * comes from the measured rects of the panels that are open now (the CSS
+ * --orb-fit-* variables are the fallback where nothing covers a side).
+ *
+ *  - `fitKey` (new AOI, Fit button): always fits.
+ *  - `layoutKey` (a panel opened / closed): refits only if the user has not
+ *    moved the map since the last automatic fit, so a manual pan or zoom is
+ *    never thrown away.
+ */
+function FitController({
+  aoi,
+  fitKey,
+  layoutKey,
+}: {
+  aoi: Aoi | null;
+  fitKey: number;
+  layoutKey: string;
+}) {
   const map = useMap();
-  useEffect(() => {
-    if (!aoi) return;
-    // Keep the AOI clear of the floating panels: the shell publishes the
-    // per-breakpoint insets as CSS custom properties.
-    const shell = map.getContainer().closest(".orb-shell");
+  const aoiRef = useRef(aoi);
+  aoiRef.current = aoi;
+  const userMoved = useRef(false);
+  const programmatic = useRef(false);
+  const guardTimer = useRef(0);
+
+  const fit = useRef((): void => {});
+  fit.current = () => {
+    const target = aoiRef.current;
+    if (!target) return;
+    const container = map.getContainer();
+    const shell = container.closest(".orb-shell");
     const cs = shell ? getComputedStyle(shell) : null;
-    const inset = (name: string) => Number.parseFloat(cs?.getPropertyValue(name) ?? "") || 12;
+    const fallback = (name: string) => Number.parseFloat(cs?.getPropertyValue(name) ?? "") || 12;
+    const m = coveredInsets(container, FIT_GAP);
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    map.fitBounds(boundsOf(aoi), {
-      paddingTopLeft: [inset("--orb-fit-left"), inset("--orb-fit-top")],
-      paddingBottomRight: [inset("--orb-fit-right"), inset("--orb-fit-bottom")],
+    programmatic.current = true;
+    window.clearTimeout(guardTimer.current);
+    // moveend normally clears the flag; the timer covers a fit that moves nothing
+    guardTimer.current = window.setTimeout(() => {
+      programmatic.current = false;
+    }, 900);
+    userMoved.current = false;
+    map.fitBounds(boundsOf(target), {
+      paddingTopLeft: [m.left ?? fallback("--orb-fit-left"), m.top ?? fallback("--orb-fit-top")],
+      paddingBottomRight: [m.right ?? fallback("--orb-fit-right"), m.bottom ?? fallback("--orb-fit-bottom")],
       maxZoom: 10,
       animate: !reduceMotion,
       duration: 0.45,
     });
+  };
+
+  // A move or zoom the app did not start is the user's.
+  useEffect(() => {
+    const onStart = () => {
+      if (!programmatic.current) userMoved.current = true;
+    };
+    const onEnd = () => {
+      programmatic.current = false;
+    };
+    map.on("movestart zoomstart", onStart);
+    map.on("moveend zoomend", onEnd);
+    return () => {
+      map.off("movestart zoomstart", onStart);
+      map.off("moveend zoomend", onEnd);
+      window.clearTimeout(guardTimer.current);
+    };
+  }, [map]);
+
+  useEffect(() => {
+    if (aoi) fit.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitKey]);
+
+  const firstLayout = useRef(true);
+  useEffect(() => {
+    if (firstLayout.current) {
+      firstLayout.current = false;
+      return;
+    }
+    if (!userMoved.current) fit.current();
+  }, [layoutKey]);
   return null;
 }
 
@@ -351,6 +418,7 @@ function MapView({
   overlayBounds,
   viewer,
   fitKey,
+  layoutKey,
   roleBefore,
   roleAfter,
   showAllFootprints,
@@ -479,7 +547,7 @@ function MapView({
 
         <ClickHandler enabled={!drawMode} onPick={onPickLocation} drawGuard={drawGuard} />
         <AoiDrawer enabled={drawMode} onAoiDrawn={onAoiDrawn} drawGuard={drawGuard} />
-        <FitController aoi={aoi} fitKey={fitKey} />
+        <FitController aoi={aoi} fitKey={fitKey} layoutKey={layoutKey} />
         <ScaleBar />
         {!CUSTOM_BASEMAP_URL && <BasemapControl value={basemapId} onChange={setBasemapId} />}
       </MapContainer>
