@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type KeyboardEvent } from "react";
+import { memo, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { changeColour } from "../lib/changeDetection";
 import { formatAcquisitionTime, formatDate } from "../lib/data";
 import { formatCount, formatPlain, formatSigned, formatTick } from "../lib/format";
@@ -17,8 +17,11 @@ interface TemporalGraphProps {
   onView: (v: GraphView) => void;
 }
 
-const CAPTION =
+// Wording follows the dataset encoding, as the change view does: display-DN
+// quicklooks are stretched per scene; other encodings are plain stored DN.
+const CAPTION_DN =
   "Per-scene stretched browse brightness — not comparable in magnitude between dates; not calibrated gamma-0.";
+const CAPTION_STORED = "Stored 8-bit raster values of each acquisition, over pixels valid in both dates.";
 const DAY = 86_400_000;
 const M = { l: 54, r: 14, t: 24, b: 38 };
 
@@ -93,6 +96,7 @@ function ByDatePlot({
   const y = (dn: number) => M.t + (1 - dn / 255) * ph;
   const yTicks = [0, 64, 128, 192, 255];
   const names = { before: "Before", after: "After" } as const;
+  const dnName = stats.displayDn ? "display DN" : "stored DN";
   const dn = (n: number) => formatPlain(n);
 
   const describe = (i: number, role: "before" | "after", iso: string) => {
@@ -100,7 +104,7 @@ function ByDatePlot({
     return {
       title: `${names[role]} · ${formatAcquisitionTime(iso)}`,
       lines: [
-        `Median ${dn(d.median)} display DN`,
+        `Median ${dn(d.median)} ${dnName}`,
         `p25 to p75: ${dn(d.p25)} to ${dn(d.p75)}`,
         `p10 to p90: ${dn(d.p10)} to ${dn(d.p90)}`,
         `${formatCount(own.dates.validPixels)} common valid pixels`,
@@ -129,7 +133,7 @@ function ByDatePlot({
         transform={`translate(12 ${M.t + ph / 2}) rotate(-90)`}
         textAnchor="middle"
       >
-        Display DN (0–255)
+        {stats.displayDn ? "Display DN (0–255)" : "Stored DN (0–255)"}
       </text>
       <text className="orb-axis orb-axis--title" x={M.l + pw / 2} y={h - 3} textAnchor="middle">
         Acquisition date (UTC)
@@ -402,6 +406,8 @@ function DeltaPlot({
 function TemporalGraph({ status, stats, channel, view, onView }: TemporalGraphProps) {
   const [ref, size] = useElementSize<HTMLDivElement>();
   const [tip, setTip] = useState<Tip | null>(null);
+  // A tooltip belongs to the data it was opened on.
+  useEffect(() => setTip(null), [stats, channel, view]);
 
   const own = stats?.byChannel[channel];
   let message: string | null = null;
@@ -459,10 +465,10 @@ function TemporalGraph({ status, stats, channel, view, onView }: TemporalGraphPr
         )}
         <Tooltip tip={message ? null : tip} w={size.w} />
       </div>
-      <p className="orb-graph__caption">{CAPTION}</p>
+      <p className="orb-graph__caption">{stats?.displayDn === false ? CAPTION_STORED : CAPTION_DN}</p>
       {!message && own && stats && view === "date" && (
         <table className="sr-only">
-          <caption>Brightness by acquisition date, {channel}, display DN</caption>
+          <caption>Brightness by acquisition date, {channel}, {stats.displayDn ? "display DN" : "stored DN"}</caption>
           <thead>
             <tr>
               <th scope="col">Acquisition</th>
