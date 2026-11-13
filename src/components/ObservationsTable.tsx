@@ -36,7 +36,7 @@ function geometry(s: NisarScene): string {
 
 function Message({ busy, children }: { busy?: boolean; children: string }) {
   return (
-    <p className="orb-instr-empty" role="status">
+    <p className="vx-instr-empty" role="status">
       {busy && <Spinner />}
       <span>{children}</span>
     </p>
@@ -93,19 +93,19 @@ function ObservationsTable({
   return (
     <>
       <div
-        className="orb-instr-scroll"
+        className="vx-instr-scroll"
         role="region"
         aria-label="Observations table, scrollable"
         tabIndex={0}
       >
-        <table className="orb-itable orb-itable--obs">
+        <table className="vx-itable vx-itable--obs">
           <colgroup>
-            <col className="orb-col-expand" />
-            <col className="orb-col-when" />
-            <col className="orb-col-place" />
-            <col className="orb-col-channels" />
-            <col className="orb-col-maturity" />
-            <col className="orb-col-role" />
+            <col className="vx-col-expand" />
+            <col className="vx-col-when" />
+            <col className="vx-col-place" />
+            <col className="vx-col-channels" />
+            <col className="vx-col-maturity" />
+            <col className="vx-col-role" />
           </colgroup>
           <caption>
             {rows.length} observation{rows.length === 1 ? "" : "s"} · UTC · {dir === "asc" ? "oldest" : "newest"} first
@@ -115,7 +115,7 @@ function ObservationsTable({
                 · {shown.length} of {rows.length}
                 <button
                   type="button"
-                  className="orb-itable__link"
+                  className="vx-itable__link"
                   aria-expanded={showAll}
                   onClick={() => setShowAll((v) => !v)}
                 >
@@ -126,13 +126,13 @@ function ObservationsTable({
           </caption>
           <thead>
             <tr>
-              <th scope="col" className="orb-itable__narrow">
+              <th scope="col" className="vx-itable__narrow">
                 <span className="sr-only">Details</span>
               </th>
               <th scope="col" aria-sort={dir === "asc" ? "ascending" : "descending"}>
                 <button
                   type="button"
-                  className="orb-itable__sort"
+                  className="vx-itable__sort"
                   onClick={() => setDir((d) => (d === "asc" ? "desc" : "asc"))}
                 >
                   Acquisition
@@ -144,7 +144,7 @@ function ObservationsTable({
               </th>
               <th scope="col">Location</th>
               <th scope="col">Channels</th>
-              <th scope="col" className="orb-col-maturity">Maturity</th>
+              <th scope="col" className="vx-col-maturity">Maturity</th>
               <th scope="col">Role</th>
             </tr>
           </thead>
@@ -158,10 +158,10 @@ function ObservationsTable({
               return (
                 <Fragment key={s.id}>
                   <tr data-selected={s.id === selectedSceneId || undefined} data-role={role ?? undefined}>
-                    <td className="orb-itable__narrow">
+                    <td className="vx-itable__narrow">
                       <button
                         type="button"
-                        className="orb-itable__expand"
+                        className="vx-itable__expand"
                         aria-expanded={expanded}
                         aria-controls={detailId}
                         aria-label={`Details for ${when}`}
@@ -170,35 +170,35 @@ function ObservationsTable({
                         {expanded ? <ChevronDown size={16} aria-hidden /> : <ChevronRight size={16} aria-hidden />}
                       </button>
                     </td>
-                    <th scope="row" className="orb-itable__time">
+                    <th scope="row" className="vx-itable__time">
                       <span title={when}>{formatDate(s.startTime)}</span>
-                      <span className="orb-itable__sub">{s.startTime.slice(11, 16)} UTC</span>
+                      <span className="vx-itable__sub">{s.startTime.slice(11, 16)} UTC</span>
                     </th>
                     <td>
-                      <span className="orb-itable__place" title={locationLabel}>
+                      <span className="vx-itable__place" title={locationLabel}>
                         {locationLabel || "—"}
                       </span>
-                      <span className="orb-itable__sub orb-itable__trunc" title={geometry(s)}>
+                      <span className="vx-itable__sub vx-itable__trunc" title={geometry(s)}>
                         {geometry(s)}
                       </span>
                     </td>
-                    <td className="orb-itable__mono">
-                      <span className="orb-itable__trunc" title={s.polarisations.join(" · ")}>
+                    <td className="vx-itable__mono">
+                      <span className="vx-itable__trunc" title={s.polarisations.join(" · ")}>
                         {s.polarisations.join(" · ")}
                       </span>
-                      {metaOnly && <span className="orb-itable__sub orb-itable__warn">Metadata only</span>}
+                      {metaOnly && <span className="vx-itable__sub vx-itable__warn">Metadata only</span>}
                     </td>
-                    <td className="orb-itable__mono orb-col-maturity">
-                      <span className="orb-itable__trunc" title={s.maturity}>
+                    <td className="vx-itable__mono vx-col-maturity">
+                      <span className="vx-itable__trunc" title={s.maturity}>
                         {s.maturity}
                       </span>
                     </td>
                     <td>
                       <span className="sr-only">{role ?? "Not selected"}</span>
-                      <span className="orb-itable__actions" role="group" aria-label={`Role of ${when}`}>
+                      <span className="vx-itable__actions" role="group" aria-label={`Role of ${when}`}>
                         <button
                           type="button"
-                          className="orb-button orb-button--compact"
+                          className="vx-button vx-button--compact"
                           aria-pressed={role === "Before"}
                           aria-label={`Use ${when} as Before`}
                           onClick={() => onAssignRole("before", s.id)}
@@ -207,7 +207,7 @@ function ObservationsTable({
                         </button>
                         <button
                           type="button"
-                          className="orb-button orb-button--compact"
+                          className="vx-button vx-button--compact"
                           aria-pressed={role === "After"}
                           aria-label={`Use ${when} as After`}
                           onClick={() => onAssignRole("after", s.id)}
@@ -216,7 +216,7 @@ function ObservationsTable({
                         </button>
                         <button
                           type="button"
-                          className="orb-button orb-button--compact orb-itable__icon"
+                          className="vx-button vx-button--compact vx-itable__icon"
                           aria-pressed={s.id === selectedSceneId}
                           aria-label={`Highlight footprint of ${when} on the map`}
                           title="Highlight footprint on the map"
@@ -228,7 +228,7 @@ function ObservationsTable({
                     </td>
                   </tr>
                   {expanded && (
-                    <tr id={detailId} className="orb-itable__detail">
+                    <tr id={detailId} className="vx-itable__detail">
                       <td />
                       <td colSpan={COLS - 1}>
                         <dl>

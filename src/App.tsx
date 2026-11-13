@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { isAbortError } from "./lib/abort";
 import CataloguePanel from "./components/CataloguePanel";
 import ComparePanel from "./components/ComparePanel";
-import InstrumentRow, { type InstrumentTab } from "./components/InstrumentRow";
+import InstrumentDock, { type InstrumentTab } from "./components/InstrumentDock";
 import MapView from "./components/MapView";
 import ObservationsTable from "./components/ObservationsTable";
 import ResultsTable from "./components/ResultsTable";
@@ -11,11 +11,19 @@ import ObservationPanel from "./components/ObservationPanel";
 import SearchPanel from "./components/SearchPanel";
 import StateNotice from "./components/StateNotice";
 import StatsPanel, { type AiExplanation, type AiState } from "./components/StatsPanel";
-import TopBar, { type ChipTone } from "./components/TopBar";
-import { Dock } from "./components/ui";
+import AppHeader, { type ChipTone } from "./components/AppHeader";
+import Hero from "./components/Hero";
+import LockedStep from "./components/LockedStep";
+import MapLegend from "./components/MapLegend";
+import MorphPanel, { type MorphRect } from "./components/MorphPanel";
+import StepIcon from "./components/StepIcon";
+import Starfield from "./components/Starfield";
+import { LiquidGlassFilter } from "./components/glass/Glass";
+import { DisclosureSection } from "./components/ui";
+import { useGlassProximity } from "./hooks/useGlassProximity";
+import { LAYOUT_EVENT } from "./lib/freeArea";
+import { STEPS, type StepId } from "./lib/steps";
 import { usePairStats } from "./lib/usePairStats";
-import { DESTINATIONS, type Dest } from "./ui/types";
-import { useLayoutMode } from "./ui/useLayoutMode";
 import {
   aoiCenter,
   aoiFromCenter,
@@ -29,7 +37,6 @@ import {
 import {
   datasetStatusLabel,
   datasetStatusNote,
-  formatDate,
   loadManifest,
   type PreparedDataset,
   type ViewerDataset,
@@ -100,14 +107,21 @@ export default function App() {
   const [unavailablePairs, setUnavailablePairs] = useState<ReadonlySet<string>>(new Set());
 
   // ---- shell (presentation only) -------------------------------------
-  const layoutMode = useLayoutMode();
-  const [dest, setDest] = useState<Dest>("explore");
-  const [controlsOpen, setControlsOpen] = useState(true);
-  // The observation details panel is closed by default at every width: its
-  // content overlaps the observations table anyway.
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  // Instrument row (observations / results / graph): collapsible on desktop,
-  // always shown (stacked) on smaller screens.  Until the user chooses, it is
+  useGlassProximity();
+  // The hero is an overlay: the workspace (and its data loading) is mounted
+  // underneath from the first render.
+  const [heroOpen, setHeroOpen] = useState(true);
+  const [heroIntro, setHeroIntro] = useState(true);
+  const [wsKey, setWsKey] = useState(0);
+  const [step, setStep] = useState<StepId>("locate");
+  const [morph, setMorph] = useState<{ key: number; from: MorphRect | null }>({ key: 0, from: null });
+  const [vw, setVw] = useState({ w: window.innerWidth, h: window.innerHeight });
+  const [headerBottom, setHeaderBottom] = useState(88);
+  const [sheetCollapsed, setSheetCollapsed] = useState(false);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const phone = vw.w < 768;
+  // Instrument dock (observations / results / graph): a glass bar along the
+  // bottom of the free map area, collapsible.  Until the user chooses, it is
   // open once a comparison is loaded and a slim bar before that.
   const [instrChoice, setInstrChoice] = useState<boolean | null>(null);
   const [instrTab, setInstrTab] = useState<InstrumentTab>("observations");
@@ -622,8 +636,6 @@ export default function App() {
 
   const handleToggleDraw = useCallback(() => setDrawMode((d) => !d), []);
   const handleFit = useCallback(() => setFitKey((k) => k + 1), []);
-  const handleToggleControls = useCallback(() => setControlsOpen((o) => !o), []);
-  const handleToggleDetails = useCallback(() => setDetailsOpen((o) => !o), []);
   const handleToggleInstruments = useCallback(() => {
     setInstrChoice(!instrOpen);
   }, [instrOpen]);
@@ -645,15 +657,76 @@ export default function App() {
     if (roleBefore && roleAfter) handleLoadPair(roleBefore, roleAfter);
   }, [roleBefore, roleAfter, handleLoadPair]);
 
-  // A comparison that has just become ready opens the Compare destination.
-  const previousKind = useRef(viewState.kind);
+  // ---- step navigation ------------------------------------------------
+  const stepAvailable: Record<StepId, boolean> = {
+    locate: true,
+    scenes: searched || searching,
+    pairs: searched && !searching && scenes.length > 0,
+    change: pairLoaded,
+    explain: pairLoaded,
+  };
+
   useEffect(() => {
-    const was = previousKind.current;
-    const now = viewState.kind;
-    previousKind.current = now;
-    const loaded = (k: string) => k === "ready" || k === "no-valid-pixels";
-    if (loaded(now) && !loaded(was)) setDest("compare");
-  }, [viewState.kind]);
+    const onResize = () => setVw({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // The sidebar sits just under the floating header, whatever its height.
+  // Layout box, not getBoundingClientRect: the header enters with a transform.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const measure = () => setHeaderBottom(el.offsetTop + el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  /** Switch step; the glass sidebar grows out of `from` into place. */
+  const goStep = useCallback((id: StepId, from: MorphRect | null) => {
+    setStep(id);
+    setSheetCollapsed(false);
+    setMorph((m) => ({ key: m.key + 1, from }));
+  }, []);
+  const rectOf = (r: DOMRect): MorphRect => ({ l: r.left, t: r.top, w: r.width, h: r.height, r: r.height / 2 });
+  const tabRect = (id: StepId): MorphRect | null => {
+    const el = document.querySelector(`[data-step="${id}"]`);
+    return el ? rectOf(el.getBoundingClientRect()) : null;
+  };
+  const autoStep = useCallback((id: StepId) => goStep(id, tabRect(id)), [goStep]);
+  const goTo = useCallback((id: StepId) => autoStep(id), [autoStep]);
+
+  // Walk the user forward as the workflow progresses: a search starts ->
+  // Scenes; compatible pairs found -> Pairs; a pair is ready -> Change.
+  const prevSearching = useRef(false);
+  useEffect(() => {
+    if (searching && !prevSearching.current) autoStep("scenes");
+    if (!searching && prevSearching.current && !searchError && pairs.length > 0) autoStep("pairs");
+    prevSearching.current = searching;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searching]);
+  const prevLoaded = useRef(pairLoaded);
+  useEffect(() => {
+    if (pairLoaded && !prevLoaded.current) autoStep("change");
+    prevLoaded.current = pairLoaded;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pairLoaded]);
+
+  const enterFromHero = useCallback(
+    (id: StepId) => {
+      const m = window.innerWidth < 720 ? 12 : 32;
+      setHeroOpen(false);
+      setWsKey((k) => k + 1);
+      goStep(id, { l: m, t: m, w: window.innerWidth - 2 * m, h: window.innerHeight - 2 * m, r: 36 });
+    },
+    [goStep],
+  );
+  const handleGlobe = useCallback(() => {
+    setHeroIntro(false);
+    setHeroOpen(true);
+  }, []);
 
   // Scenes by role, for the observation panel (stable references).
   const sceneById = useMemo(() => new Map(scenes.map((sc) => [sc.id, sc])), [scenes]);
@@ -711,16 +784,13 @@ export default function App() {
           ? "loading…"
           : "no comparison",
   };
-  const rowCollapsible = layoutMode === "wide" || layoutMode === "mid";
-  const rowVisible = !rowCollapsible || instrOpen;
+  // The dock appears with the first search; it is the only way to the tables
+  // and the graph on larger screens.  On phones the same content is inline in
+  // the Change and Explain steps instead.
+  const showDock = !phone && (searched || searching || pairLoaded);
+  const rowVisible = showDock && instrOpen;
 
-  // ---- top bar: title, context and status reflect the real selection ---
-  const title = locationLabel || (aoi ? formatAoi(aoi) : "Choose a location");
-  const context = viewer
-    ? `${formatDate(viewer.earlier.startTime)} → ${formatDate(viewer.later.startTime)} · ${channel || "no channel"} · ${viewer.band}`
-    : aoi
-      ? `${formatAoi(aoi)} · no comparison loaded`
-      : "No area selected";
+  // ---- header status reflects the real selection -----------------------
   let statusLabel = "No comparison loaded";
   let statusTone: ChipTone = "idle";
   let statusNote = "Search for NISAR observations to load a comparison.";
@@ -742,212 +812,404 @@ export default function App() {
     statusTone = "error";
   }
 
-  const destLabel = DESTINATIONS.find((d) => d.id === dest)?.label ?? "";
-  const overlayDetails = layoutMode === "wide" || layoutMode === "mid";
-  const notice = (here: Dest) => (
-    <div className="orb-section">
+  // ---- sidebar geometry --------------------------------------------------
+  const sidebarW = phone ? vw.w - 24 : Math.min(400, Math.max(320, Math.round(vw.w * 0.3)));
+  const sheetTop = phone
+    ? sheetCollapsed
+      ? vw.h - 16 - 64
+      : Math.max(headerBottom + 12, vw.h * 0.45)
+    : headerBottom + 12;
+  const panelTo: MorphRect = {
+    l: phone ? 12 : 16,
+    t: sheetTop,
+    w: sidebarW,
+    h: phone && sheetCollapsed ? 64 : Math.max(200, vw.h - sheetTop - 16),
+    r: 28,
+  };
+  const dockLeft = panelTo.l + panelTo.w + 16;
+  // Tells the map (fit padding, divider range, legend and controls) that a
+  // surface moved or changed size without the map seeing a resize.
+  const layoutKey = [
+    Math.round(panelTo.l),
+    Math.round(panelTo.t),
+    Math.round(panelTo.w),
+    Math.round(panelTo.h),
+    Math.round(headerBottom),
+    phone ? "p" : "d",
+    showDock ? (rowVisible ? "o" : "c") : "-",
+  ].join("|");
+  useEffect(() => {
+    window.dispatchEvent(new Event(LAYOUT_EVENT));
+  }, [layoutKey, heroOpen]);
+
+  const stepDef = STEPS.find((x) => x.id === step)!;
+  const stepBlurb: Record<StepId, string> = {
+    locate: "Pick a place and the area to watch.",
+    scenes: "NISAR passes over your area.",
+    pairs: "Before and after scenes from the same orbit and track.",
+    change: "Flip between before, after and the change between them.",
+    explain: "Change statistics and an AI reading of what they may mean.",
+  };
+
+  // States worth a notice in the steps that cannot show their content yet.
+  const pendingNotice =
+    viewState.kind === "searching" ||
+    viewState.kind === "loading-raster" ||
+    viewState.kind === "error" ||
+    viewState.kind === "metadata-only" ||
+    viewState.kind === "no-observations" ||
+    viewState.kind === "no-compatible-pair";
+  const notice = (here: StepId) => (
+    <div className="px-5 pt-3 pb-1">
       <StateNotice
         state={viewState}
         here={here}
-        onNavigate={setDest}
+        onNavigate={goTo}
         onRetrySearch={handleSearchData}
         onRetryPair={handleRetryPair}
         canRetryPair={Boolean(roleBefore && roleAfter)}
       />
     </div>
   );
+  const locked = (message: string, cta: { id: StepId; label: string }) => (
+    <LockedStep step={step} message={message} ctaLabel={cta.label} onCta={() => goTo(cta.id)} />
+  );
+  const needPair = (): { id: StepId; label: string } =>
+    stepAvailable.pairs
+      ? { id: "pairs", label: "Choose a pair" }
+      : stepAvailable.scenes
+        ? { id: "scenes", label: "View scenes" }
+        : { id: "locate", label: "Go to Locate" };
 
-  let controls;
-  if (dest === "explore") {
-    controls = (
-      <>
-        {notice("explore")}
-        <SearchPanel
-          onLocationSearch={handleLocationSearch}
-          searchingLocation={searchingLocation}
-          locationLabel={locationLabel}
-          locationError={locationError}
-          aoi={aoi}
-          aoiSizeKm={aoiSizeKm}
-          onAoiSizeChange={handleAoiSizeChange}
-          drawMode={drawMode}
-          onToggleDraw={handleToggleDraw}
-          onSearchData={handleSearchData}
-          searching={searching}
-          exampleLabel={example ? `${example.manifest.studyArea.name}` : null}
-          onExample={handleExample}
-        />
-        {(searched || searching) && (
-          <CataloguePanel
-            scenes={scenes}
-            pairs={pairs}
-            metadataOnlyPairIds={metadataOnlyPairIds}
-            status={viewState}
-            truncated={truncated}
-            dateFrom={dateFrom}
-            dateTo={dateTo}
-            onApplyDates={handleApplyDates}
-            selectedSceneId={selectedSceneId}
-            onSelectScene={setSelectedSceneId}
-            roleBefore={roleBefore}
-            roleAfter={roleAfter}
-            onAssignRole={handleAssignRole}
-            onLoadPair={handleLoadPair}
-            onLoadSuggested={handleLoadSuggested}
-          />
-        )}
-      </>
-    );
-  } else if (viewState.kind === "ready" || viewState.kind === "no-valid-pixels") {
-    controls = (
-      <>
-        {viewState.kind === "no-valid-pixels" && notice(dest)}
-        {dest === "compare" ? (
-          <ComparePanel
-            dataset={viewState.dataset.viewer}
-            channelStatus={viewState.dataset.channelStatus}
-            pol={channel}
-            onPolChange={setPol}
-            layer={layer}
-            onLayerChange={handleLayerChange}
-            canCompare={channel !== ""}
-            computing={rendering}
-            showAllFootprints={showAllFootprints}
-            onToggleFootprints={setShowAllFootprints}
-          />
-        ) : (
-          <StatsPanel
-            dataset={viewState.dataset.viewer}
-            pol={channel}
-            summary={summary}
-            statsInRow={rowVisible}
-            onShowResults={handleShowResults}
-            ai={ai}
-            onExplain={handleExplain}
-          />
-        )}
-      </>
-    );
-  } else {
-    controls = notice(dest);
-  }
+  const catalogueProps = {
+    scenes,
+    pairs,
+    metadataOnlyPairIds,
+    status: viewState,
+    truncated,
+    dateFrom,
+    dateTo,
+    onApplyDates: handleApplyDates,
+    selectedSceneId,
+    onSelectScene: setSelectedSceneId,
+    roleBefore,
+    roleAfter,
+    onAssignRole: handleAssignRole,
+    onLoadPair: handleLoadPair,
+    onLoadSuggested: handleLoadSuggested,
+  };
+  const observationsTable = (
+    <ObservationsTable
+      status={viewState}
+      scenes={scenes}
+      roleBefore={roleBefore}
+      roleAfter={roleAfter}
+      metadataOnlyIds={metadataOnlySceneIds}
+      selectedSceneId={selectedSceneId}
+      locationLabel={locationLabel}
+      onAssignRole={handleAssignRole}
+      onSelectScene={setSelectedSceneId}
+    />
+  );
+  const resultsTable = (
+    <ResultsTable
+      status={viewState}
+      stats={pairStats}
+      channel={channel}
+      both={bothChannels}
+      onBoth={setBothChannels}
+    />
+  );
+  const temporalGraph = (
+    <TemporalGraph
+      status={viewState}
+      stats={pairStats}
+      channel={channel}
+      view={graphView}
+      onView={setGraphView}
+    />
+  );
 
-  return (
-    <div
-      className="orbital-theme orb-shell"
-      data-details={detailsOpen ? "open" : "closed"}
-      data-instruments={rowVisible ? "open" : "closed"}
-    >
-      <MapView
-        aoi={aoi}
-        scenes={scenes}
-        selectedSceneId={selectedSceneId}
-        onSelectScene={setSelectedSceneId}
-        drawMode={drawMode}
-        onAoiDrawn={handleAoiDrawn}
-        onPickLocation={handlePickLocation}
-        display={display}
-        pol={channel}
-        saturation={saturation}
-        urls={urls}
-        pairInstance={pairInstance}
-        rendering={rendering}
-        fallbackUrl={fallbackUrl}
-        overlayBounds={activePair?.bounds ?? null}
-        viewer={viewer}
-        fitKey={fitKey}
-        layoutKey={`${controlsOpen}|${detailsOpen}|${rowVisible}`}
-        roleBefore={roleBefore}
-        roleAfter={roleAfter}
-        showAllFootprints={showAllFootprints}
-      />
-
-      <TopBar
-        dest={dest}
-        onDest={setDest}
-        title={title}
-        context={context}
-        statusLabel={statusLabel}
-        statusTone={statusTone}
-        statusNote={statusNote}
-        canFit={aoi !== null}
-        onFit={handleFit}
-        controlsOpen={controlsOpen}
-        onToggleControls={handleToggleControls}
-        detailsOpen={detailsOpen}
-        onToggleDetails={handleToggleDetails}
-        instrumentsOpen={instrOpen}
-        onToggleInstruments={handleToggleInstruments}
-      />
-
-      <Dock
-        id="controls"
-        className="orb-left"
-        eyebrow="Controls"
-        title={destLabel}
-        collapsed={!controlsOpen}
-        onToggle={handleToggleControls}
-      >
-        {controls}
-      </Dock>
-
-      <Dock
-        id="observation"
-        className="orb-right"
-        eyebrow="Details"
-        title="Observation"
-        collapsed={overlayDetails ? false : !detailsOpen}
-        onToggle={handleToggleDetails}
-        hidden={overlayDetails && !detailsOpen}
-      >
-        <ObservationPanel
-          viewer={viewer}
-          pol={channel}
-          beforeScene={beforeScene}
-          afterScene={afterScene}
-          selectedScene={selectedScene}
-          locationLabel={locationLabel}
-        />
-      </Dock>
-
-      <InstrumentRow
-        layout={layoutMode}
-        open={instrOpen}
+  const phoneInstruments = phone && pairLoaded && (
+    <div className="px-5 pb-4">
+      <h3 className="vx-section__title">Tables and graph</h3>
+      <InstrumentDock
+        variant="inline"
+        open
         onToggle={handleToggleInstruments}
         tab={instrTab}
         onTab={setInstrTab}
         onOpenTab={handleOpenInstrument}
         summaries={instrSummaries}
-        observations={
-          <ObservationsTable
-            status={viewState}
-            scenes={scenes}
-            roleBefore={roleBefore}
-            roleAfter={roleAfter}
-            metadataOnlyIds={metadataOnlySceneIds}
-            selectedSceneId={selectedSceneId}
-            locationLabel={locationLabel}
-            onAssignRole={handleAssignRole}
-            onSelectScene={setSelectedSceneId}
-          />
-        }
-        results={<ResultsTable
-            status={viewState}
-            stats={pairStats}
-            channel={channel}
-            both={bothChannels}
-            onBoth={setBothChannels}
-          />}
-        graph={
-          <TemporalGraph
-            status={viewState}
-            stats={pairStats}
-            channel={channel}
-            view={graphView}
-            onView={setGraphView}
-          />
-        }
+        observations={observationsTable}
+        results={resultsTable}
+        graph={temporalGraph}
       />
+    </div>
+  );
+
+  let stepBody: ReactNode;
+  switch (step) {
+    case "locate":
+      stepBody = (
+        <>
+          {notice("locate")}
+          <SearchPanel
+            onLocationSearch={handleLocationSearch}
+            searchingLocation={searchingLocation}
+            locationLabel={locationLabel}
+            locationError={locationError}
+            aoi={aoi}
+            aoiSizeKm={aoiSizeKm}
+            onAoiSizeChange={handleAoiSizeChange}
+            drawMode={drawMode}
+            onToggleDraw={handleToggleDraw}
+            onFit={handleFit}
+            onSearchData={handleSearchData}
+            searching={searching}
+            exampleLabel={example ? `${example.manifest.studyArea.name}` : null}
+            onExample={handleExample}
+          />
+        </>
+      );
+      break;
+    case "scenes":
+      stepBody = stepAvailable.scenes ? (
+        <>
+          {notice("scenes")}
+          <CataloguePanel view="scenes" onGoTo={goTo} {...catalogueProps} />
+          {selectedScene && (
+            <DisclosureSection title="Selected scene">
+              <ObservationPanel
+                viewer={viewer}
+                pol={channel}
+                beforeScene={beforeScene}
+                afterScene={afterScene}
+                selectedScene={selectedScene}
+                locationLabel={locationLabel}
+              />
+            </DisclosureSection>
+          )}
+        </>
+      ) : (
+        locked(stepDef.locked, { id: "locate", label: "Go to Locate" })
+      );
+      break;
+    case "pairs":
+      stepBody = stepAvailable.pairs ? (
+        <>
+          {notice("pairs")}
+          <CataloguePanel view="pairs" onGoTo={goTo} {...catalogueProps} />
+        </>
+      ) : stepAvailable.scenes ? (
+        // searching, failed, or nothing found: the notice says which
+        notice("pairs")
+      ) : (
+        locked(stepDef.locked, { id: "locate", label: "Go to Locate" })
+      );
+      break;
+    case "change":
+      stepBody =
+        viewState.kind === "ready" || viewState.kind === "no-valid-pixels" ? (
+          <>
+            {viewState.kind === "no-valid-pixels" && notice("change")}
+            <ComparePanel
+              dataset={viewState.dataset.viewer}
+              channelStatus={viewState.dataset.channelStatus}
+              pol={channel}
+              onPolChange={setPol}
+              layer={layer}
+              onLayerChange={handleLayerChange}
+              canCompare={channel !== ""}
+              computing={rendering}
+              showAllFootprints={showAllFootprints}
+              onToggleFootprints={setShowAllFootprints}
+              onFit={handleFit}
+            />
+            {phone && (
+              <div className="px-5 pb-4">
+                <MapLegend
+                  viewer={viewState.dataset.viewer}
+                  layer={layer === "compare" ? "compare" : layer}
+                  pol={channel}
+                  saturation={saturation}
+                  variant="inline"
+                />
+              </div>
+            )}
+            {phoneInstruments}
+          </>
+        ) : (
+          <>
+            {pendingNotice && notice("change")}
+            {locked(stepDef.locked, needPair())}
+          </>
+        );
+      break;
+    case "explain":
+      stepBody =
+        viewState.kind === "ready" || viewState.kind === "no-valid-pixels" ? (
+          <>
+            {viewState.kind === "no-valid-pixels" && notice("explain")}
+            <StatsPanel
+              dataset={viewState.dataset.viewer}
+              pol={channel}
+              summary={summary}
+              statsInRow={rowVisible}
+              onShowResults={handleShowResults}
+              ai={ai}
+              onExplain={handleExplain}
+            />
+            {viewState.dataset.viewer.limitations[0] && (
+              <p className="vx-note px-5 py-3">{viewState.dataset.viewer.limitations[0]}</p>
+            )}
+            <DisclosureSection title="Observation details">
+              <ObservationPanel
+                viewer={viewer}
+                pol={channel}
+                beforeScene={beforeScene}
+                afterScene={afterScene}
+                selectedScene={selectedScene}
+                locationLabel={locationLabel}
+              />
+            </DisclosureSection>
+            {phoneInstruments}
+          </>
+        ) : (
+          <>
+            {pendingNotice && notice("explain")}
+            {locked(stepDef.locked, needPair())}
+          </>
+        );
+      break;
+  }
+
+  const showSheetChrome = phone;
+  const stepHeader = (
+    <div className="flex items-center gap-3 px-5 pt-5 pb-1" style={sheetCollapsed && phone ? { paddingTop: 10 } : undefined}>
+      <span className="text-app-flare">
+        <StepIcon id={step} size={22} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <h2 className="m-0 text-[22px] leading-tight">{stepDef.label}</h2>
+        {!(sheetCollapsed && phone) && <p className="m-0 text-[12px] text-app-muted">{stepBlurb[step]}</p>}
+      </div>
+      {showSheetChrome && (
+        <button
+          type="button"
+          className="vx-button vx-button--ghost vx-button--compact shrink-0 !px-3"
+          aria-expanded={!sheetCollapsed}
+          onClick={() => setSheetCollapsed((c) => !c)}
+          aria-label={sheetCollapsed ? "Show panel" : "Hide panel to see the map"}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: sheetCollapsed ? "rotate(180deg)" : undefined }}>
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+          <span className="sr-only md:not-sr-only">{sheetCollapsed ? "Show" : "Map"}</span>
+        </button>
+      )}
+    </div>
+  );
+
+  return (
+    <div
+      className="vx-shell relative h-full overflow-hidden bg-black text-app-text"
+      style={{ ["--vx-dock-left" as string]: `${dockLeft}px` }}
+    >
+      <LiquidGlassFilter />
+
+      {/* deep space behind a full-bleed map */}
+      <div className="absolute inset-0" aria-hidden="true">
+        <Starfield count={110} />
+      </div>
+      <main className="vx-map-host absolute inset-0" inert={heroOpen}>
+        <MapView
+          aoi={aoi}
+          scenes={scenes}
+          selectedSceneId={selectedSceneId}
+          onSelectScene={setSelectedSceneId}
+          drawMode={drawMode}
+          onAoiDrawn={handleAoiDrawn}
+          onPickLocation={handlePickLocation}
+          display={display}
+          pol={channel}
+          saturation={saturation}
+          urls={urls}
+          pairInstance={pairInstance}
+          rendering={rendering}
+          fallbackUrl={fallbackUrl}
+          overlayBounds={activePair?.bounds ?? null}
+          viewer={viewer}
+          fitKey={fitKey}
+          layoutKey={layoutKey}
+          roleBefore={roleBefore}
+          roleAfter={roleAfter}
+          showAllFootprints={showAllFootprints}
+          showLegend={!phone}
+        />
+      </main>
+
+      {/* floating glass header */}
+      <div
+        ref={headerRef}
+        data-cover="top"
+        className="absolute top-4 right-4 left-4 z-[1001]"
+        inert={heroOpen}
+      >
+        <AppHeader
+          active={step}
+          available={stepAvailable}
+          onPick={(id, r) => goStep(id, rectOf(r))}
+          statusLabel={statusLabel}
+          statusTone={statusTone}
+          statusNote={statusNote}
+          onGlobe={handleGlobe}
+          animKey={wsKey}
+        />
+      </div>
+
+      {/* where the sidebar ends up: what the map measures (the panel itself
+          is mid-flight while it morphs) */}
+      <div
+        aria-hidden="true"
+        data-cover={phone ? "bottom" : "left"}
+        style={{
+          position: "absolute",
+          left: panelTo.l,
+          top: panelTo.t,
+          width: panelTo.w,
+          height: panelTo.h,
+          visibility: "hidden",
+          pointerEvents: "none",
+        }}
+      />
+
+      {/* glass sidebar: grows out of whichever tab (or hero panel) opened it */}
+      <div inert={heroOpen}>
+        <MorphPanel from={morph.from} to={panelTo} morphKey={morph.key} label={`${stepDef.label} panel`}>
+          <div key={`${step}-${morph.key}`} className="step-in">
+            {stepHeader}
+            {!(sheetCollapsed && phone) && stepBody}
+          </div>
+        </MorphPanel>
+      </div>
+
+      {showDock && (
+        <InstrumentDock
+          variant="dock"
+          open={instrOpen}
+          onToggle={handleToggleInstruments}
+          tab={instrTab}
+          onTab={setInstrTab}
+          onOpenTab={handleOpenInstrument}
+          summaries={instrSummaries}
+          observations={observationsTable}
+          results={resultsTable}
+          graph={temporalGraph}
+        />
+      )}
+
+      {heroOpen && <Hero intro={heroIntro} onEnter={enterFromHero} />}
     </div>
   );
 }

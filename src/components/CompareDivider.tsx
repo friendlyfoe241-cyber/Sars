@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import L from "leaflet";
 import { ImageOverlay, useMap } from "react-leaflet";
 import { MoveHorizontal } from "lucide-react";
+import Glass from "./glass/Glass";
 import { coveredInsets, observeLayout } from "../lib/freeArea";
 
 /**
@@ -68,11 +69,12 @@ function measure(container: HTMLElement): Range {
   const lineTop = ins.top ?? 0;
   const lineBottom = cr.height - (ins.bottom ?? 0);
   const anyPanel = ins.left !== null || ins.right !== null || ins.top !== null || ins.bottom !== null;
-  // From 1024 the zoom and basemap controls sit at the top-right of the free
-  // area: the After label stays clear of them.  Below, they are top-left.
-  const desktop = window.matchMedia("(min-width: 1024px)").matches;
+  // From 768 the zoom and basemap controls stack at the top-right of the free
+  // area: the After label stays clear of them.  On phones they move to the
+  // bottom-right of the (short) free strip, away from the labels.
+  const desktop = window.matchMedia("(min-width: 768px)").matches;
   let controlsW = 0;
-  container.querySelectorAll<HTMLElement>(".leaflet-top.leaflet-left .leaflet-control").forEach((el) => {
+  container.querySelectorAll<HTMLElement>(".leaflet-top.leaflet-right .leaflet-control").forEach((el) => {
     controlsW = Math.max(controlsW, el.offsetWidth);
   });
   return {
@@ -82,8 +84,7 @@ function measure(container: HTMLElement): Range {
     lineTop,
     lineBottom,
     gripY: anyPanel ? (lineTop + lineBottom) / 2 - GRIP / 2 : cr.height * 0.72,
-    // below 1024 Leaflet's zoom buttons sit top-left: keep the label clear of them
-    labelLeft: ins.left !== null ? left + GAP : 12 + 44 + GAP,
+    labelLeft: ins.left !== null ? left + GAP : 12,
     labelRight: cr.width - right + GAP + (desktop ? controlsW + GAP : 0),
   };
 }
@@ -111,7 +112,7 @@ export default function CompareDivider({
     for (const name of [BEFORE_PANE, AFTER_PANE] as const) {
       const pane = map.getPane(name) ?? map.createPane(name);
       pane.style.zIndex = String(PANE_Z[name]);
-      pane.classList.add("orb-pane-compare");
+      pane.classList.add("vx-pane-compare");
     }
     setPanesReady(true);
     return () => {
@@ -347,33 +348,33 @@ export default function CompareDivider({
           <ImageOverlay url={afterUrl} bounds={bounds} opacity={0.95} pane={AFTER_PANE} />
         </>
       )}
-      <div ref={rootRef} className="orb-compare" data-orb-compare>
-        <div ref={lineRef} className="orb-compare__line" aria-hidden />
-        <div
+      <div ref={rootRef} className="vx-compare" data-vx-compare>
+        <div ref={lineRef} className="vx-compare__line" aria-hidden />
+        <Glass
           ref={beforeLabelRef}
-          className="orb-compare__label orb-compare__label--before"
+          className="lg-panel lg-label vx-compare__label vx-compare__label--before absolute"
           aria-hidden
         >
-          <span className="orb-eyebrow">Before</span>
-          <span className="orb-mono orb-compare__date">
+          <span className="vx-eyebrow">Before</span>
+          <span className="vx-mono vx-compare__date">
             {beforeDate}
             <span> UTC · {channel}</span>
           </span>
-        </div>
-        <div
+        </Glass>
+        <Glass
           ref={afterLabelRef}
-          className="orb-compare__label orb-compare__label--after"
+          className="lg-panel lg-label vx-compare__label vx-compare__label--after absolute"
           aria-hidden
         >
-          <span className="orb-eyebrow">After</span>
-          <span className="orb-mono orb-compare__date">
+          <span className="vx-eyebrow">After</span>
+          <span className="vx-mono vx-compare__date">
             {afterDate}
             <span> UTC · {channel}</span>
           </span>
-        </div>
-        <div
+        </Glass>
+        <Glass
           ref={gripRef}
-          className="orb-compare__grip"
+          className="lg-panel vx-compare__grip absolute rounded-full"
           role="slider"
           tabIndex={0}
           aria-label={`Comparison divider: before ${beforeDate} UTC on the left, after ${afterDate} UTC on the right`}
@@ -384,7 +385,7 @@ export default function CompareDivider({
           aria-valuetext={valueText(Math.round(position.current * 100))}
         >
           <MoveHorizontal size={20} aria-hidden />
-        </div>
+        </Glass>
       </div>
     </>
   );

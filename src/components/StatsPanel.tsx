@@ -39,17 +39,17 @@ export default function StatsPanel({ dataset, pol, summary, statsInRow, onShowRe
       <Section title="Radar brightness change">
         {statsInRow ? (
           <>
-            <p className="orb-note mb-3">
+            <p className="vx-note mb-3">
               after − before · {pol} · {unit}. The statistics are in the Results table, with their method and
               limitations.
             </p>
-            <button type="button" className="orb-button orb-button--block" onClick={onShowResults}>
-              Go to Results table
+            <button type="button" className="vx-button vx-button--block" onClick={onShowResults}>
+              Open the Results table
             </button>
           </>
         ) : (
           <>
-        <p className="orb-note mb-3">
+        <p className="vx-note mb-3">
           after − before · {pol} · {unit}. Positive and negative values describe the radar signal only.
         </p>
         <dl className="m-0">
@@ -63,7 +63,7 @@ export default function StatsPanel({ dataset, pol, summary, statsInRow, onShowRe
           </KeyRow>
         </dl>
         {has && summary.validFraction < 0.2 && (
-          <p className="orb-note mt-2">
+          <p className="vx-note mt-2">
             Most of the selected area lies outside this pair's observation footprint.
           </p>
         )}
@@ -76,20 +76,20 @@ export default function StatsPanel({ dataset, pol, summary, statsInRow, onShowRe
           type="button"
           onClick={onExplain}
           disabled={ai.status === "loading"}
-          className="orb-button orb-button--primary orb-button--block"
+          className="vx-button vx-button--primary vx-button--block"
         >
           {ai.status === "loading" ? <Spinner /> : null}
           {ai.status === "loading" ? "Requesting explanation" : "Explain this change"}
         </button>
         {ai.status === "idle" && (
-          <p className="orb-note mt-2">
+          <p className="vx-note mt-2">
             Generates a written reading of the statistics and metadata. It does not inspect the imagery.
           </p>
         )}
 
         {ai.status === "error" && (
-          <div className="orb-notice mt-3" data-tone="error" role="alert">
-            <span className="orb-notice__icon">
+          <div className="vx-notice mt-3" data-tone="error" role="alert">
+            <span className="vx-notice__icon">
               <AlertTriangle size={18} aria-hidden />
             </span>
             <h3>Explanation unavailable</h3>
@@ -98,7 +98,7 @@ export default function StatsPanel({ dataset, pol, summary, statsInRow, onShowRe
         )}
 
         {ai.status === "done" && ai.explanation && (
-          <div className="mt-3 grid gap-3 border border-orb-border bg-orb-raised/60 p-3">
+          <div className="mt-3 grid gap-3 rounded-[18px] bg-white/[0.06] p-4 shadow-[inset_1.5px_1.5px_0_rgba(255,255,255,0.16)]">
             {(
               [
                 ["Observed signal", ai.explanation.observedSignal],
@@ -107,8 +107,8 @@ export default function StatsPanel({ dataset, pol, summary, statsInRow, onShowRe
               ] as const
             ).map(([label, text]) => (
               <div key={label}>
-                <div className="orb-eyebrow">{label}</div>
-                <p className="m-0 mt-1 text-[13px] leading-5 text-orb-text">{text}</p>
+                <div className="vx-eyebrow">{label}</div>
+                <p className="m-0 mt-1 text-[13px] leading-5 text-vx-text">{text}</p>
               </div>
             ))}
           </div>

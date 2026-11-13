@@ -25,7 +25,7 @@ interface ObservationPanelProps {
 
 const ICON = 15;
 const LINK =
-  "break-all underline decoration-orb-control underline-offset-2 hover:decoration-orb-text";
+  "break-all underline decoration-vx-control underline-offset-2 hover:decoration-vx-text";
 
 function geometry(a: {
   flightDirection?: string | null;
@@ -139,7 +139,7 @@ function ObservationPanel({
               {locationLabel || "—"}
             </KeyRow>
           </dl>
-          <p className="orb-note mt-2">No comparison loaded. Load a Before and After pair to see its details here.</p>
+          <p className="vx-note mt-2">No comparison loaded. Load a Before and After pair to see its details here.</p>
         </Section>
       )}
 
@@ -174,7 +174,7 @@ function ObservationPanel({
         <Section title="Limitations">
           <ul className="m-0 grid list-none gap-2 p-0">
             {viewer.limitations.map((l, i) => (
-              <li key={i} className="orb-note border-l border-orb-control pl-3">
+              <li key={i} className="vx-note border-l border-vx-control pl-3">
                 {l}
               </li>
             ))}

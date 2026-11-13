@@ -34,7 +34,7 @@ interface Tip {
 
 function Message({ busy, children }: { busy?: boolean; children: string }) {
   return (
-    <p className="orb-instr-empty" role="status">
+    <p className="vx-instr-empty" role="status">
       {busy && <Spinner />}
       <span>{children}</span>
     </p>
@@ -46,7 +46,7 @@ function Tooltip({ tip, w }: { tip: Tip | null; w: number }) {
   const right = tip.x > w * 0.6;
   return (
     <div
-      className="orb-tip"
+      className="vx-tip"
       role="presentation"
       style={{ top: Math.max(0, tip.y), ...(right ? { right: w - tip.x + 10 } : { left: tip.x + 10 }) }}
     >
@@ -74,8 +74,8 @@ function ByDatePlot({
   setTip: (t: Tip | null) => void;
 }) {
   const own = stats.byChannel[channel];
-  const secondary = channel !== "HH"; // HH is cyan; any other channel is the lavender, dashed, hollow variant
-  const colour = secondary ? "var(--orb-data-secondary)" : "var(--orb-data-decrease)";
+  const secondary = channel !== "HH"; // HH is cyan; any other channel is the violet, dashed, hollow variant
+  const colour = secondary ? "var(--vx-series-2)" : "var(--vx-series-1)";
   const pw = Math.max(10, w - M.l - M.r);
   const ph = Math.max(10, h - M.t - M.b);
 
@@ -115,27 +115,27 @@ function ByDatePlot({
   let lastLabelX = -Infinity;
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="group" aria-label={`Brightness by acquisition date, ${channel}`}>
-      <text className="orb-axis" x={M.l} y={12}>
+      <text className="vx-axis" x={M.l} y={12}>
         {w < 430 ? "dot median · bar p25–p75 · line p10–p90" : `${channel} ${secondary ? "dashed, hollow" : "solid"} · dot median · bar p25–p75 · whisker p10–p90`}
       </text>
       {yTicks.map((v) => (
         <g key={v}>
-          <line className="orb-grid" x1={M.l} x2={M.l + pw} y1={y(v)} y2={y(v)} />
-          <text className="orb-axis" x={M.l - 8} y={y(v) + 4} textAnchor="end">
+          <line className="vx-grid" x1={M.l} x2={M.l + pw} y1={y(v)} y2={y(v)} />
+          <text className="vx-axis" x={M.l - 8} y={y(v) + 4} textAnchor="end">
             {v}
           </text>
         </g>
       ))}
-      <line className="orb-axisline" x1={M.l} x2={M.l} y1={M.t} y2={M.t + ph} />
-      <line className="orb-axisline" x1={M.l} x2={M.l + pw} y1={M.t + ph} y2={M.t + ph} />
+      <line className="vx-axisline" x1={M.l} x2={M.l} y1={M.t} y2={M.t + ph} />
+      <line className="vx-axisline" x1={M.l} x2={M.l + pw} y1={M.t + ph} y2={M.t + ph} />
       <text
-        className="orb-axis orb-axis--title"
+        className="vx-axis vx-axis--title"
         transform={`translate(12 ${M.t + ph / 2}) rotate(-90)`}
         textAnchor="middle"
       >
         {stats.displayDn ? "Display DN" : "Stored DN"}
       </text>
-      <text className="orb-axis orb-axis--title" x={M.l + pw / 2} y={h - 3} textAnchor="middle">
+      <text className="vx-axis vx-axis--title" x={M.l + pw / 2} y={h - 3} textAnchor="middle">
         Acquisition date (UTC)
       </text>
 
@@ -149,13 +149,13 @@ function ByDatePlot({
         const show = () => setTip({ x: cx, y: Math.max(0, y(d.p90) - 6), ...tip });
         return (
           <g key={a.productId}>
-            <line className="orb-grid orb-grid--v" x1={cx} x2={cx} y1={M.t} y2={M.t + ph} />
-            <line className="orb-axisline" x1={cx} x2={cx} y1={M.t + ph} y2={M.t + ph + 4} />
-            <text className="orb-axis" x={cx} y={M.t + ph + 16 + (stagger ? 13 : 0)} textAnchor="middle">
-              <tspan className="orb-axis--role">{names[a.role]}</tspan> · {formatDate(a.startTime)}
+            <line className="vx-grid vx-grid--v" x1={cx} x2={cx} y1={M.t} y2={M.t + ph} />
+            <line className="vx-axisline" x1={cx} x2={cx} y1={M.t + ph} y2={M.t + ph + 4} />
+            <text className="vx-axis" x={cx} y={M.t + ph + 16 + (stagger ? 13 : 0)} textAnchor="middle">
+              <tspan className="vx-axis--role">{names[a.role]}</tspan> · {formatDate(a.startTime)}
             </text>
             <g
-              className="orb-mark"
+              className="vx-mark"
               tabIndex={0}
               role="img"
               aria-label={label}
@@ -164,7 +164,7 @@ function ByDatePlot({
               onFocus={show}
               onBlur={() => setTip(null)}
             >
-              <rect className="orb-mark__hit" x={cx - 28} y={M.t} width={56} height={ph} />
+              <rect className="vx-mark__hit" x={cx - 28} y={M.t} width={56} height={ph} />
               <line
                 x1={cx}
                 x2={cx}
@@ -182,7 +182,7 @@ function ByDatePlot({
                 y={y(d.p75)}
                 width={20}
                 height={Math.max(2, y(d.p25) - y(d.p75))}
-                fill={secondary ? "var(--orb-bg)" : colour}
+                fill={secondary ? "var(--vx-bg)" : colour}
                 fillOpacity={secondary ? 0.9 : 0.85}
                 stroke={colour}
                 strokeWidth={secondary ? 2 : 1}
@@ -192,8 +192,8 @@ function ByDatePlot({
                 cx={cx}
                 cy={y(d.median)}
                 r={5.5}
-                fill={secondary ? "var(--orb-bg)" : "var(--orb-text)"}
-                stroke={secondary ? colour : "var(--orb-bg)"}
+                fill={secondary ? "var(--vx-bg)" : "var(--vx-text)"}
+                stroke={secondary ? colour : "var(--vx-bg)"}
                 strokeWidth={2}
               />
             </g>
@@ -317,27 +317,27 @@ function DeltaPlot({
 
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="group" aria-label={`Distribution of pixel differences, ${channel}`}>
-      <text className="orb-axis" x={M.l} y={12}>
+      <text className="vx-axis" x={M.l} y={12}>
         {w < 430 ? `dashed: ±${g.saturation} map limits` : `dashed: ±${g.saturation} display DN map colour limits`}
         {g.outside >= 0.05 && w >= 430 ? ` · ${g.outside.toFixed(1)}% beyond ±${g.R}` : ""}
       </text>
       {yTicks.map((v) => (
         <g key={v}>
-          <line className="orb-grid" x1={M.l} x2={M.l + pw} y1={y(v)} y2={y(v)} />
-          <text className="orb-axis" x={M.l - 8} y={y(v) + 4} textAnchor="end">
+          <line className="vx-grid" x1={M.l} x2={M.l + pw} y1={y(v)} y2={y(v)} />
+          <text className="vx-axis" x={M.l - 8} y={y(v) + 4} textAnchor="end">
             {v}
           </text>
         </g>
       ))}
       <text
-        className="orb-axis orb-axis--title"
+        className="vx-axis vx-axis--title"
         transform={`translate(12 ${M.t + ph / 2}) rotate(-90)`}
         textAnchor="middle"
       >
         % of valid pixels
       </text>
       <g
-        className="orb-mark orb-mark--plot"
+        className="vx-mark vx-mark--plot"
         tabIndex={0}
         role="application"
         aria-roledescription="histogram"
@@ -347,7 +347,7 @@ function DeltaPlot({
         onBlur={() => setTip(null)}
         onMouseLeave={() => setTip(null)}
       >
-        <rect className="orb-mark__hit" x={M.l} y={M.t} width={pw} height={ph} />
+        <rect className="vx-mark__hit" x={M.l} y={M.t} width={pw} height={ph} />
         {g.bins.map((bin, i) => {
           const [r, gr, bl] = changeColour(bin.centre, g.saturation);
           const top = y(bin.share);
@@ -359,7 +359,7 @@ function DeltaPlot({
               width={bw}
               height={Math.max(0, M.t + ph - top)}
               fill={`rgb(${r},${gr},${bl})`}
-              stroke={i === idx ? "var(--orb-text)" : "none"}
+              stroke={i === idx ? "var(--vx-text)" : "none"}
               strokeWidth={1}
               onMouseEnter={() => {
                 setCursor(i);
@@ -376,25 +376,25 @@ function DeltaPlot({
           x2={x(v)}
           y1={M.t}
           y2={M.t + ph}
-          stroke="var(--orb-text-muted)"
+          stroke="var(--vx-text-muted)"
           strokeWidth={1}
           strokeDasharray="3 3"
         />
       ))}
-      <line x1={x(0)} x2={x(0)} y1={M.t} y2={M.t + ph} stroke="var(--orb-text)" strokeWidth={1.5} />
-      <text className="orb-axis" x={x(0) + 5} y={M.t + 11}>
+      <line x1={x(0)} x2={x(0)} y1={M.t} y2={M.t + ph} stroke="var(--vx-text)" strokeWidth={1.5} />
+      <text className="vx-axis" x={x(0) + 5} y={M.t + 11}>
         0 · no difference
       </text>
-      <line className="orb-axisline" x1={M.l} x2={M.l + pw} y1={M.t + ph} y2={M.t + ph} />
+      <line className="vx-axisline" x1={M.l} x2={M.l + pw} y1={M.t + ph} y2={M.t + ph} />
       {xTicks.map((v) => (
         <g key={v}>
-          <line className="orb-axisline" x1={x(v)} x2={x(v)} y1={M.t + ph} y2={M.t + ph + 4} />
-          <text className="orb-axis" x={x(v)} y={M.t + ph + 17} textAnchor="middle">
+          <line className="vx-axisline" x1={x(v)} x2={x(v)} y1={M.t + ph} y2={M.t + ph + 4} />
+          <text className="vx-axis" x={x(v)} y={M.t + ph + 17} textAnchor="middle">
             {formatTick(v)}
           </text>
         </g>
       ))}
-      <text className="orb-axis orb-axis--title" x={M.l + pw / 2} y={h - 3} textAnchor="middle">
+      <text className="vx-axis vx-axis--title" x={M.l + pw / 2} y={h - 3} textAnchor="middle">
         Difference, after − before (display DN)
       </text>
     </svg>
@@ -436,21 +436,21 @@ function TemporalGraph({ status, stats, channel, view, onView }: TemporalGraphPr
         : `${channel} · ${formatCount(own.delta.valid)} valid px`
       : "";
   return (
-    <div className="orb-graph">
-      <div className="orb-graph__bar">
-        <div className="orb-segment-group orb-segment-group--fill orb-graph__seg" role="group" aria-label="Graph view">
-          <button type="button" className="orb-segment" aria-pressed={view === "date"} onClick={() => onView("date")}>
+    <div className="vx-graph">
+      <div className="vx-graph__bar">
+        <div className="vx-segment-group vx-segment-group--fill vx-graph__seg" role="group" aria-label="Graph view">
+          <button type="button" className="vx-segment" aria-pressed={view === "date"} onClick={() => onView("date")}>
             By date
           </button>
-          <button type="button" className="orb-segment" aria-pressed={view === "change"} onClick={() => onView("change")}>
+          <button type="button" className="vx-segment" aria-pressed={view === "change"} onClick={() => onView("change")}>
             Change distribution
           </button>
         </div>
-        <p className="orb-graph__ctx" aria-live="polite">
+        <p className="vx-graph__ctx" aria-live="polite">
           {context}
         </p>
       </div>
-      <div className="orb-graph__plot" ref={ref}>
+      <div className="vx-graph__plot" ref={ref}>
         {message ? (
           <Message busy={busy}>{message}</Message>
         ) : (
@@ -466,7 +466,7 @@ function TemporalGraph({ status, stats, channel, view, onView }: TemporalGraphPr
         )}
         <Tooltip tip={message ? null : tip} w={size.w} />
       </div>
-      <p className="orb-graph__caption" title={caption}>
+      <p className="vx-graph__caption" title={caption}>
         {caption}
       </p>
       {!message && own && stats && view === "date" && (

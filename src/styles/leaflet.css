@@ -1,19 +1,26 @@
-/* Leaflet's own controls, restyled to ORBITAL: square, 1px borders, tokens.
-   Leaflet's stylesheet is imported into the `leaflet` layer (see index.css),
-   which sits below `components`, so plain selectors are enough here. */
+/* Leaflet in the Vortex skin.  Leaflet's own stylesheet sits in the `leaflet`
+   layer (index.css), below `components`, so plain selectors are enough.
+   The map is full-bleed; every control is placed from the measured free map
+   area (--vx-free-*, published by MapView), never from fixed offsets. */
 
 .leaflet-container {
-  background: var(--orb-bg);
-  font-family: var(--orb-font-body);
+  background: transparent;
+  font-family: var(--vx-font-body);
   font-size: 12px;
-  color: var(--orb-text);
+  color: var(--vx-text);
 }
 
-/* zoom */
+/* zoom: dark glass bar, 44px targets */
 .leaflet-bar {
-  border: 1px solid var(--orb-border) !important;
-  border-radius: 0 !important;
-  box-shadow: var(--orb-shadow) !important;
+  border: 0 !important;
+  border-radius: 22px !important;
+  overflow: hidden;
+  background: rgba(6, 8, 16, 0.82);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow:
+    inset 1.5px 1.5px 0 rgba(255, 255, 255, 0.3),
+    0 10px 30px rgba(0, 0, 0, 0.5) !important;
 }
 .leaflet-bar a,
 .leaflet-bar a:hover {
@@ -21,116 +28,226 @@
   height: 44px;
   line-height: 42px;
   border-radius: 0 !important;
-  border-bottom: 1px solid var(--orb-border);
-  background-color: var(--orb-glass);
-  color: var(--orb-text);
-  font: 400 20px/42px var(--orb-font-body);
+  border-bottom: 1px solid var(--vx-border);
+  background-color: transparent;
+  color: var(--vx-text);
+  font: 400 20px/42px var(--vx-font-body);
 }
-.leaflet-bar a:hover { background-color: var(--orb-surface-hover); }
-.leaflet-bar a:last-child { border-bottom: 0; }
+.leaflet-bar a:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+.leaflet-bar a:last-child {
+  border-bottom: 0;
+}
 .leaflet-bar a.leaflet-disabled {
-  background-color: var(--orb-surface);
-  color: var(--orb-text-subtle);
+  background-color: transparent;
+  color: var(--vx-text-subtle);
 }
 .leaflet-container a:focus-visible,
 .leaflet-bar a:focus-visible {
-  outline: 2px solid var(--orb-focus);
-  outline-offset: -2px;
+  outline: 2px solid var(--vx-focus);
+  outline-offset: -3px;
 }
 
-/* scale */
+/* scale + attribution: small dark chips, kept legible */
 .leaflet-control-scale-line {
-  padding: 1px 6px;
-  border: 1px solid var(--orb-text-muted);
+  padding: 1px 8px;
+  border: 1px solid var(--vx-text-muted);
   border-top: 0;
-  background: color-mix(in srgb, var(--orb-bg) 78%, transparent);
-  color: var(--orb-text);
-  font: 400 11px/16px var(--orb-font-mono);
+  border-radius: 0 0 6px 6px;
+  background: rgba(6, 8, 16, 0.78);
+  color: var(--vx-text);
+  font: 400 11px/16px var(--vx-font-body);
   text-shadow: none;
 }
-
-/* attribution: kept legible */
 .leaflet-control-attribution {
-  padding: 2px 8px;
-  background: color-mix(in srgb, var(--orb-bg) 82%, transparent) !important;
-  color: var(--orb-text-muted);
-  font: 400 11px/16px var(--orb-font-body);
+  padding: 2px 10px;
+  border-radius: 12px 0 0 0;
+  background: rgba(6, 8, 16, 0.78) !important;
+  color: var(--vx-text-muted) !important;
+  font: 400 11px/18px var(--vx-font-body);
 }
 .leaflet-control-attribution a {
-  color: var(--orb-text);
+  color: var(--vx-flare) !important;
   text-decoration: underline;
-  text-decoration-color: var(--orb-control-border);
   text-underline-offset: 2px;
 }
-.leaflet-control-attribution a:hover { text-decoration-color: var(--orb-text); }
-
-/* placement: zoom beside the left dock, bottom controls above the reserved
-   bottom row so the later instrument row never covers them */
-.leaflet-bottom { bottom: var(--orb-bottom-inset, 0); }
-.leaflet-top.leaflet-left { margin: 12px 0 0 12px; }
-
-@media (max-width: 767px) {
-  /* Compare: the BEFORE / AFTER labels run along the top of the map (up to
-     three lines, ~58px), so the zoom + basemap controls start below them
-     instead of crowding the BEFORE label */
-  .orb-map:has(.orb-compare) .leaflet-top.leaflet-left { margin-top: 82px; }
+.leaflet-tooltip,
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: rgba(10, 12, 22, 0.94);
+  color: var(--vx-text);
+  border-color: var(--vx-border);
 }
 
-@media (min-width: 1024px) {
-  /* zoom + basemap: anchored to the right edge of the free map area, below
-     the top bar (--orb-free-* are published by MapView from the open panels) */
-  .leaflet-top.leaflet-left {
-    left: auto;
-    right: var(--orb-free-right, 12px);
-    top: var(--orb-free-top, 12px);
-    margin: 0;
+/* placement: right edge of the free area, below the header; bottom controls
+   sit just above the dock / sheet */
+.leaflet-top.leaflet-right {
+  top: var(--vx-free-top);
+  right: var(--vx-free-right);
+}
+.leaflet-bottom.leaflet-right {
+  bottom: calc(var(--vx-free-bottom) - 12px);
+  right: 0;
+}
+.leaflet-right .leaflet-control {
+  margin-right: 0;
+}
+.leaflet-top.leaflet-right .leaflet-control {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+.leaflet-bottom.leaflet-right .leaflet-control {
+  margin-bottom: 0;
+}
+
+@media (max-width: 767px) {
+  /* phones: the free map strip above the sheet is short.  Pinch zooms, so the
+     +/- buttons are dropped and the basemap switch sits at the bottom of the
+     strip, clear of the Before / After labels along the top. */
+  .leaflet-control-zoom {
+    display: none;
   }
-  .leaflet-top.leaflet-left .leaflet-control {
-    float: right;
-    clear: both;
-    margin: 0 0 8px;
+  .leaflet-top.leaflet-right {
+    top: auto;
+    bottom: calc(var(--vx-free-bottom) + 18px);
   }
-  .leaflet-bottom.leaflet-left .leaflet-control { margin-left: 16px; margin-bottom: 4px; }
-  .leaflet-bottom.leaflet-right .leaflet-control { margin-right: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .leaflet-fade-anim .leaflet-tile,
-  .leaflet-zoom-anim .leaflet-zoom-animated { transition: none !important; }
+  .leaflet-zoom-anim .leaflet-zoom-animated {
+    transition: none !important;
+  }
 }
 
 /* basemap: dimmed on its own pane only; the radar overlay pane is never
-   filtered.  Earth reads as dusk on the night side rather than a bright atlas. */
-.leaflet-pane.orb-pane-basemap--earth { filter: brightness(0.7) saturate(0.9); }
-.leaflet-pane.orb-pane-basemap--reference { filter: brightness(0.92); }
+   filtered.  Earth reads as dusk rather than a bright atlas. */
+.leaflet-pane.vx-pane-basemap--earth {
+  filter: brightness(0.7) saturate(0.9);
+}
+.leaflet-pane.vx-pane-basemap--reference {
+  filter: brightness(0.92);
+}
 
-/* basemap switch, stacked under the zoom buttons */
-.orb-basemap-switch {
-  margin-top: 8px !important;
-  border: 1px solid var(--orb-border);
-  background: var(--orb-glass);
-  box-shadow: var(--orb-shadow);
+/* basemap switch: a glass pill under the zoom buttons */
+.vx-basemap-switch {
+  border-radius: 999px !important;
+  clear: both;
+}
+.vx-basemap-switch .lg-c {
   padding: 3px;
 }
-/* the group keeps its aria-label; the visible caption is redundant */
-.orb-basemap-switch__label { display: none; }
-.orb-basemap-switch__buttons { display: flex; gap: 2px; }
-.orb-basemap-switch__btn {
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  background: var(--orb-surface-raised);
-  color: var(--orb-text-muted);
-  font: 500 12px/16px var(--orb-font-mono);
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  transition: background var(--orb-duration-fast) var(--orb-ease);
+.vx-basemap-switch__label {
+  display: none; /* the group keeps its aria-label */
 }
-.orb-basemap-switch__btn:hover { background: var(--orb-surface-hover); color: var(--orb-text); }
-.orb-basemap-switch__btn[aria-pressed="true"] { background: var(--orb-accent); color: var(--orb-on-accent); }
-.orb-basemap-switch__btn:focus-visible { outline: 2px solid var(--orb-focus); outline-offset: 2px; }
+.vx-basemap-switch__buttons {
+  display: flex;
+  gap: 2px;
+}
+.vx-basemap-switch__btn {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--vx-text-muted);
+  font: 400 12.5px/1 var(--vx-font-display);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.vx-basemap-switch__btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--vx-text);
+}
+.vx-basemap-switch__btn[aria-pressed="true"] {
+  background: linear-gradient(135deg, #4f46e5, #6d4ce0);
+  color: var(--vx-on-accent);
+}
+.vx-basemap-switch__btn:focus-visible {
+  outline: 2px solid var(--vx-focus);
+  outline-offset: 1px;
+}
 
+/* ---- before / after comparison divider ---------------------------------- */
+/* Lives inside the Leaflet container (above the panes, below Leaflet's own
+   controls).  Position and visibility are written by CompareDivider.tsx
+   straight to the DOM; nothing here animates. */
+.vx-compare {
+  position: absolute;
+  inset: 0;
+  z-index: 650;
+  pointer-events: none;
+  --cmp-top: 12px;
+}
+.vx-compare__line {
+  position: absolute;
+  top: var(--cmp-line-top, 0px);
+  height: var(--cmp-line-h, 100%);
+  left: -1px;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--vx-cyan), #ffffff 50%, var(--vx-violet));
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.55),
+    0 0 14px rgba(124, 196, 255, 0.5);
+}
+.vx-compare__grip {
+  top: var(--cmp-grip-y, 40%);
+  left: 0;
+  width: 44px;
+  height: 44px;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: ew-resize;
+  color: var(--vx-text);
+}
+.vx-compare__grip .lg-c {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+}
+.vx-compare__grip:hover,
+.vx-compare__grip[data-dragging="true"] {
+  box-shadow:
+    0 0 0 2px var(--vx-flare),
+    0 10px 30px rgba(0, 0, 0, 0.6);
+}
+.vx-compare__grip:focus-visible {
+  outline: 3px solid var(--vx-focus);
+  outline-offset: 3px;
+}
+.vx-compare__label {
+  top: var(--cmp-top);
+  max-width: 45%;
+  border-radius: 18px;
+}
+.vx-compare__label > .lg-c {
+  display: grid !important;
+  padding: 6px 14px;
+}
+.vx-compare__label--after {
+  text-align: right;
+}
+.vx-compare__label[data-off="true"] {
+  visibility: hidden;
+}
+.vx-compare__date {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--vx-text);
+  white-space: nowrap;
+}
+.vx-pane-compare {
+  transition: none !important;
+}
 @media (max-width: 767px) {
-  /* keep the switch compact on phones; the group stays labelled for AT */
-  .orb-basemap-switch__btn { min-height: 44px; }
+  /* narrow labels (date on one line, UTC and channel on the next) leave room
+     for both of them either side of a centred divider */
+  .vx-compare__date span {
+    display: block;
+  }
 }

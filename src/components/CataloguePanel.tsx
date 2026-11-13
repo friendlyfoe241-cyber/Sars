@@ -7,6 +7,11 @@ import { scenePairId } from "../lib/selection";
 import type { ViewState } from "../lib/viewState";
 
 interface CataloguePanelProps {
+  /** Scenes step: date filter, scene list, Before / After roles.
+   *  Pairs step: suggested pairs and the assigned comparison pair. */
+  view: "scenes" | "pairs";
+  /** jump to the other step */
+  onGoTo: (step: "scenes" | "pairs") => void;
   scenes: NisarScene[];
   pairs: ScenePair[];
   /** suggested pairs (by scenePairId) whose rasters are known to be unavailable */
@@ -27,14 +32,13 @@ interface CataloguePanelProps {
 
 function MaturityTag({ maturity }: { maturity: string }) {
   return (
-    <span className="border border-orb-border px-1 font-mono text-[11px] leading-4 tracking-[0.04em] text-orb-muted uppercase">
+    <span className="rounded-full bg-white/10 px-2 font-mono text-[11px] leading-5 tracking-[0.04em] text-vx-muted uppercase">
       {maturity}
     </span>
   );
 }
 
-const ROLE_BTN =
-  "orb-button orb-button--compact !min-h-8 !px-2 aria-pressed:!border-orb-text aria-pressed:!bg-orb-text aria-pressed:!text-orb-bg";
+const ROLE_BTN = "vx-button vx-button--compact !px-3";
 
 /**
  * One row of the scene list.  Memoised: with up to 300 results, only rows
@@ -60,24 +64,24 @@ const SceneRow = memo(function SceneRow({
     <li
       onClick={() => onSelectScene(scene.id)}
       aria-current={isSelected ? "true" : undefined}
-      className={`cursor-pointer border border-l-[3px] px-3 py-2 transition-colors ${
+      className={`cursor-pointer rounded-2xl px-3 py-2 transition-colors ${
         isSelected
-          ? "border-orb-border border-l-orb-focus bg-orb-hover"
-          : "border-orb-border bg-orb-raised/60 hover:bg-orb-hover"
+          ? "bg-vx-hover shadow-[inset_0_0_0_1.5px_var(--vx-flare)]"
+          : "bg-white/[0.06] hover:bg-vx-hover"
       }`}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <div className="font-mono text-[12px] text-orb-text">
+        <div className="vx-mono text-[12px] text-vx-text">
           {formatDate(scene.startTime)}
-          {time && <span className="text-orb-muted"> {time} UTC</span>}
+          {time && <span className="text-vx-muted"> {time} UTC</span>}
         </div>
         <MaturityTag maturity={scene.maturity} />
       </div>
-      <div className="truncate font-mono text-[11px] leading-[18px] text-orb-subtle" title={scene.id}>
+      <div className="truncate font-mono text-[11px] leading-[18px] text-vx-subtle" title={scene.id}>
         {scene.id}
       </div>
       <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0 text-[12px] leading-[18px] text-orb-muted">
+        <div className="min-w-0 text-[12px] leading-[18px] text-vx-muted">
           {scene.band} · {scene.polarisations.join("/")} · {scene.orbitDirection.toLowerCase()} ·{" "}
           {scene.track !== null ? `track ${scene.track}` : "track ?"}
           {scene.frame !== null ? ` · frame ${scene.frame}` : ""}
@@ -112,6 +116,8 @@ const SceneRow = memo(function SceneRow({
 });
 
 function CataloguePanel({
+  view,
+  onGoTo,
   scenes,
   pairs,
   metadataOnlyPairIds,
@@ -135,12 +141,12 @@ function CataloguePanel({
   const kind = status.kind;
   useEffect(() => {
     const el = rootRef.current;
-    const body = el?.closest<HTMLElement>(".orb-dock__body");
+    const body = el?.closest<HTMLElement>(".vx-scroll");
     if (!el || !body || body.scrollHeight <= body.clientHeight) return;
+    // The sidebar is one step per view now, so the notice and the list start
+    // at the top: bring that into view when a search settles.
     let top: number | null = null;
-    if (kind === "choose-pair") {
-      top = body.scrollTop + el.getBoundingClientRect().top - body.getBoundingClientRect().top;
-    } else if (kind === "no-observations" || kind === "no-compatible-pair" || kind === "error") {
+    if (kind === "choose-pair" || kind === "no-observations" || kind === "no-compatible-pair" || kind === "error") {
       top = 0;
     }
     if (top === null) return;
@@ -161,107 +167,94 @@ function CataloguePanel({
     [beforeScene, afterScene],
   );
 
-  return (
-    <div ref={rootRef}>
-      <DisclosureSection
-        title="Date filter"
-        summary={loading ? "searching…" : dateFrom || dateTo ? `${dateFrom || "…"} to ${dateTo || "…"}` : "any date"}
-      >
-        <div className="grid grid-cols-2 gap-2">
+  const filter = (
+    <DisclosureSection
+      title="Date filter"
+      summary={loading ? "searching…" : dateFrom || dateTo ? `${dateFrom || "…"} to ${dateTo || "…"}` : "any date"}
+    >
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label htmlFor="vx-from" className="vx-label">
+            From
+          </label>
+          <input
+            id="vx-from"
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            aria-label="From date"
+            className="vx-input vx-mono !px-2"
+          />
+        </div>
+        <div>
+          <label htmlFor="vx-to" className="vx-label">
+            To
+          </label>
+          <input
+            id="vx-to"
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            aria-label="To date"
+            className="vx-input vx-mono !px-2"
+          />
+        </div>
+      </div>
+      <button type="button" onClick={() => onApplyDates(from, to)} className="vx-button vx-button--block mt-2">
+        Apply date filter
+      </button>
+    </DisclosureSection>
+  );
+
+  const comparison =
+    beforeScene && afterScene ? (
+      <Section title="Comparison pair">
+        <div className="vx-mono text-[12px] leading-[18px]">
           <div>
-            <label htmlFor="orb-from" className="orb-label">
-              From
-            </label>
-            <input
-              id="orb-from"
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              aria-label="From date"
-              className="orb-input font-mono !px-2"
-            />
+            <span className="text-vx-muted">Before </span>
+            {formatDate(beforeScene.startTime)}
           </div>
           <div>
-            <label htmlFor="orb-to" className="orb-label">
-              To
-            </label>
-            <input
-              id="orb-to"
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              aria-label="To date"
-              className="orb-input font-mono !px-2"
-            />
+            <span className="text-vx-muted">After&nbsp; </span>
+            {formatDate(afterScene.startTime)}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => onApplyDates(from, to)}
-          className="orb-button orb-button--block mt-2"
-        >
-          Apply date filter
-        </button>
-      </DisclosureSection>
+        {issues.length > 0 ? (
+          <p className="vx-note mt-2">
+            Not compatible: {issues.map((i) => `${i.field} (${i.before} ≠ ${i.after})`).join(", ")}. These two
+            observations cannot be compared for change.
+          </p>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onLoadPair(beforeScene.id, afterScene.id)}
+            className="vx-button vx-button--primary vx-button--block mt-3"
+          >
+            Load comparison
+          </button>
+        )}
+      </Section>
+    ) : null;
 
-      {!loading && !error && scenes.length > 0 && (
+  const hasScenes = !loading && !error && scenes.length > 0;
+
+  return (
+    <div ref={rootRef}>
+      {view === "scenes" && filter}
+
+      {hasScenes && view === "scenes" && (
         <>
           {truncated && (
-            <div className="orb-section !pb-0">
-              <p className="orb-note">
+            <div className="vx-section !pb-0">
+              <p className="vx-note">
                 Results are truncated by the catalogue limit; narrow the date range or area.
               </p>
             </div>
           )}
-
-          {pairs.length > 0 && (
-            <Section title="Suggested pairs">
-              <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] gap-2 p-0">
-                {pairs.slice(0, 3).map((pair) => {
-                  const id = scenePairId(pair.before.id, pair.after.id);
-                  const metadataOnly = metadataOnlyPairIds.has(id);
-                  return (
-                    <li
-                      key={id}
-                      className="flex items-center justify-between gap-3 border border-orb-border bg-orb-raised/60 px-3 py-2"
-                    >
-                      <div className="min-w-0">
-                        <div className="font-mono text-[12px] leading-[18px] text-orb-text">
-                          {formatDate(pair.before.startTime)} → {formatDate(pair.after.startTime)}
-                        </div>
-                        <div className="text-[12px] leading-[18px] text-orb-muted">
-                          {pair.baselineDays} d · covers {Math.round(pair.aoiCoverage * 100)}% of AOI
-                        </div>
-                        <div className="truncate font-mono text-[11px] leading-4 text-orb-subtle">
-                          {compatibilityLabel(pair.before)}
-                        </div>
-                      </div>
-                      {metadataOnly ? (
-                        <span
-                          title="Quicklook rasters are not available for this pair; only scene metadata can be shown."
-                          className="shrink-0 border border-dashed border-orb-border px-2 py-1 text-[12px] text-orb-subtle"
-                        >
-                          Metadata only
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => onLoadSuggested(pair)}
-                          className="orb-button orb-button--compact shrink-0"
-                        >
-                          Compare
-                        </button>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </Section>
-          )}
-
-          <DisclosureSection title="Scenes" summary={`${scenes.length} · full list`}>
+          <Section title={`Scenes · ${scenes.length}`}>
+            <p className="vx-note mb-2">Mark one scene as Before and a later one as After, then load the comparison.</p>
             <ul
-              className="m-0 grid max-h-[220px] list-none grid-cols-[minmax(0,1fr)] gap-1 overflow-y-auto p-0 pr-1"
+              className="m-0 grid max-h-[min(46vh,380px)] list-none grid-cols-[minmax(0,1fr)] gap-1.5 overflow-y-auto p-0 pr-1"
               aria-label="Catalogue scenes"
             >
               {scenes.map((scene) => (
@@ -276,37 +269,71 @@ function CataloguePanel({
                 />
               ))}
             </ul>
-          </DisclosureSection>
+          </Section>
+          {comparison}
+          {pairs.length > 0 && (
+            <div className="vx-section">
+              <button type="button" className="vx-button vx-button--block" onClick={() => onGoTo("pairs")}>
+                See {Math.min(pairs.length, 3)} suggested pair{pairs.length === 1 ? "" : "s"}
+              </button>
+            </div>
+          )}
+        </>
+      )}
 
-          {beforeScene && afterScene && (
-            <Section title="Comparison pair">
-              <div className="font-mono text-[12px] leading-[18px]">
-                <div>
-                  <span className="text-orb-muted">Before </span>
-                  {formatDate(beforeScene.startTime)}
-                </div>
-                <div>
-                  <span className="text-orb-muted">After&nbsp; </span>
-                  {formatDate(afterScene.startTime)}
-                </div>
-              </div>
-              {issues.length > 0 ? (
-                <p className="orb-note mt-2">
-                  Not compatible:{" "}
-                  {issues.map((i) => `${i.field} (${i.before} ≠ ${i.after})`).join(", ")}. These two
-                  observations cannot be compared for change.
-                </p>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => onLoadPair(beforeScene.id, afterScene.id)}
-                  className="orb-button orb-button--primary orb-button--block mt-3"
-                >
-                  Load comparison
-                </button>
-              )}
+      {hasScenes && view === "pairs" && (
+        <>
+          {pairs.length > 0 && (
+            <Section title="Suggested pairs">
+              <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] gap-2 p-0">
+                {pairs.slice(0, 3).map((pair) => {
+                  const id = scenePairId(pair.before.id, pair.after.id);
+                  const metadataOnly = metadataOnlyPairIds.has(id);
+                  return (
+                    <li
+                      key={id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/[0.06] px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="vx-mono text-[12px] leading-[18px] text-vx-text">
+                          {formatDate(pair.before.startTime)} → {formatDate(pair.after.startTime)}
+                        </div>
+                        <div className="text-[12px] leading-[18px] text-vx-muted">
+                          {pair.baselineDays} d · covers {Math.round(pair.aoiCoverage * 100)}% of AOI
+                        </div>
+                        <div className="truncate font-mono text-[11px] leading-4 text-vx-subtle">
+                          {compatibilityLabel(pair.before)}
+                        </div>
+                      </div>
+                      {metadataOnly ? (
+                        <span
+                          title="Quicklook rasters are not available for this pair; only scene metadata can be shown."
+                          className="shrink-0 rounded-full border border-dashed border-vx-control px-3 py-1 text-[12px] text-vx-muted"
+                        >
+                          Metadata only
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onLoadSuggested(pair)}
+                                        className="vx-button vx-button--compact shrink-0"
+                        >
+                          Compare
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             </Section>
           )}
+          {comparison}
+          <div className="vx-section">
+            <p className="vx-note mb-2">Prefer other dates? Choose Before and After yourself.</p>
+            <button type="button" className="vx-button vx-button--block" onClick={() => onGoTo("scenes")}>
+              Pick scenes manually
+            </button>
+          </div>
         </>
       )}
     </div>

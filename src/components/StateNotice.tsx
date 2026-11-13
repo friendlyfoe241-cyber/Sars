@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import type { ViewState } from "../lib/viewState";
 import { Spinner } from "./ui";
-import type { Dest } from "../ui/types";
+import type { StepId } from "../lib/steps";
 
 export type NoticeTone = "idle" | "busy" | "ok" | "warn" | "error";
 
@@ -102,7 +102,7 @@ export function presentState(state: ViewState): Presentation {
         tone: "ok",
         icon: <CheckCircle2 size={18} aria-hidden />,
         title: "Comparison loaded",
-        text: "Before and after quicklooks are on the map. Switch layers in Compare.",
+        text: "Before and after quicklooks are on the map. Switch layers in Change.",
         live: "polite",
       };
     case "error":
@@ -118,38 +118,57 @@ export function presentState(state: ViewState): Presentation {
 
 interface StateNoticeProps {
   state: ViewState;
-  /** destination this notice is rendered in */
-  here: Dest;
-  onNavigate: (d: Dest) => void;
+  /** step this notice is rendered in */
+  here: StepId;
+  onNavigate: (step: StepId) => void;
   onRetrySearch: () => void;
   onRetryPair: () => void;
   canRetryPair: boolean;
 }
 
+/** The call to action that moves the user on from this state, if any. */
+function actionFor(
+  state: ViewState,
+  here: StepId,
+  go: (s: StepId) => void,
+  onRetrySearch: () => void,
+  onRetryPair: () => void,
+  canRetryPair: boolean,
+): { label: string; run: () => void } | null {
+  if (state.kind === "error" && state.source === "search") return { label: "Retry search", run: onRetrySearch };
+  if (state.kind === "error" && canRetryPair) return { label: "Retry comparison", run: onRetryPair };
+  switch (state.kind) {
+    case "ready":
+      return here === "change" ? null : { label: "Open Change", run: () => go("change") };
+    case "choose-location":
+      return here === "locate" ? null : { label: "Go to Locate", run: () => go("locate") };
+    case "choose-pair":
+      return here === "pairs" ? null : { label: "Choose a pair", run: () => go("pairs") };
+    case "no-observations":
+    case "no-compatible-pair":
+    case "error":
+    case "metadata-only":
+      return here === "locate" ? null : { label: "Back to Locate", run: () => go("locate") };
+    default:
+      return null;
+  }
+}
+
 function StateNotice({ state, here, onNavigate, onRetrySearch, onRetryPair, canRetryPair }: StateNoticeProps) {
   const p = presentState(state);
-  let action: { label: string; run: () => void } | null = null;
-  if (state.kind === "error" && state.source === "search") {
-    action = { label: "Retry search", run: onRetrySearch };
-  } else if (state.kind === "error" && canRetryPair) {
-    action = { label: "Retry comparison", run: onRetryPair };
-  } else if (state.kind === "ready" && here === "explore") {
-    action = { label: "Open Compare", run: () => onNavigate("compare") };
-  } else if (here !== "explore" && state.kind !== "ready" && state.kind !== "no-valid-pixels") {
-    action = { label: "Back to Explore", run: () => onNavigate("explore") };
-  }
+  const action = actionFor(state, here, onNavigate, onRetrySearch, onRetryPair, canRetryPair);
   return (
     <div
-      className="orb-notice"
+      className="vx-notice"
       data-tone={p.tone}
       role={p.live === "assertive" ? "alert" : p.live ? "status" : undefined}
     >
-      <span className="orb-notice__icon">{p.icon}</span>
+      <span className="vx-notice__icon">{p.icon}</span>
       <h3>{p.title}</h3>
       <p>{p.text}</p>
       {action && (
-        <div className="orb-notice__action">
-          <button type="button" className="orb-button orb-button--compact" onClick={action.run}>
+        <div className="vx-notice__action">
+          <button type="button" className="vx-button vx-button--compact" onClick={action.run}>
             {action.label}
           </button>
         </div>

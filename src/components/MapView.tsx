@@ -8,6 +8,7 @@ import {
   Rectangle,
   Polygon,
   ImageOverlay,
+  ZoomControl,
   useMap,
   useMapEvent,
 } from "react-leaflet";
@@ -20,6 +21,7 @@ import { coveredInsets, observeLayout } from "../lib/freeArea";
 import MapLegend from "./MapLegend";
 import CompareDivider from "./CompareDivider";
 import { Spinner } from "./ui";
+import Glass from "./glass/Glass";
 
 interface MapViewProps {
   aoi: Aoi | null;
@@ -53,6 +55,8 @@ interface MapViewProps {
   roleAfter: string | null;
   /** with a pair loaded: also draw the non-selected catalogue footprints */
   showAllFootprints: boolean;
+  /** draw the legend over the map (false: the sidebar shows it, on phones) */
+  showLegend?: boolean;
   /** limit drawn footprints for performance */
   maxFootprints?: number;
 }
@@ -109,13 +113,13 @@ function BasemapControl({
 }) {
   const map = useMap();
   const [container] = useState(() => {
-    const el = L.DomUtil.create("div", "leaflet-control orb-basemap-switch");
+    const el = L.DomUtil.create("div", "leaflet-control");
     L.DomEvent.disableClickPropagation(el);
     L.DomEvent.disableScrollPropagation(el);
     return el;
   });
   useEffect(() => {
-    const control = new L.Control({ position: "topleft" });
+    const control = new L.Control({ position: "topright" });
     control.onAdd = () => container;
     control.addTo(map);
     return () => {
@@ -123,22 +127,24 @@ function BasemapControl({
     };
   }, [map, container]);
   return createPortal(
-    <div role="group" aria-label="Basemap">
-      <div className="orb-eyebrow orb-basemap-switch__label">Basemap</div>
-      <div className="orb-basemap-switch__buttons">
-        {BASEMAP_IDS.map((id) => (
-          <button
-            key={id}
-            type="button"
-            className="orb-basemap-switch__btn"
-            aria-pressed={value === id}
-            onClick={() => onChange(id)}
-          >
-            {BASEMAPS[id].label}
-          </button>
-        ))}
+    <Glass className="lg-panel vx-basemap-switch">
+      <div role="group" aria-label="Basemap">
+        <div className="vx-eyebrow vx-basemap-switch__label">Basemap</div>
+        <div className="vx-basemap-switch__buttons">
+          {BASEMAP_IDS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              className="vx-basemap-switch__btn"
+              aria-pressed={value === id}
+              onClick={() => onChange(id)}
+            >
+              {BASEMAPS[id].label}
+            </button>
+          ))}
+        </div>
       </div>
-    </div>,
+    </Glass>,
     container,
   );
 }
@@ -153,10 +159,12 @@ function boundsOf(aoi: Aoi): L.LatLngBoundsExpression {
 const FIT_GAP = 16;
 
 /**
- * Publishes the free map area (what no open panel covers) as --orb-free-*
- * custom properties on the .orb-map wrapper: the legend and the zoom /
- * basemap controls position themselves from them.  A side no panel covers
- * has no property, so the CSS fallback (12px) applies.
+ * Publishes the free map area (what no glass surface covers) as --vx-free-*
+ * custom properties on the .vx-map wrapper: the legend and the zoom /
+ * basemap controls position themselves from them.  A side nothing covers
+ * has no property, so the :root default (12px) applies.  Also keeps Leaflet's
+ * size in step (it does not watch its container), which covers a map that
+ * was laid out while the hero was up.
  */
 function FreeAreaVars() {
   const map = useMap();
@@ -165,11 +173,13 @@ function FreeAreaVars() {
     const host = container.parentElement;
     if (!host) return;
     const write = () => {
+      // the map may have been laid out while hidden or resized by a panel
+      map.invalidateSize({ pan: false });
       const m = coveredInsets(container, FIT_GAP);
       for (const side of ["left", "right", "top", "bottom"] as const) {
         const v = m[side];
-        if (v === null) host.style.removeProperty(`--orb-free-${side}`);
-        else host.style.setProperty(`--orb-free-${side}`, `${Math.round(v)}px`);
+        if (v === null) host.style.removeProperty(`--vx-free-${side}`);
+        else host.style.setProperty(`--vx-free-${side}`, `${Math.round(v)}px`);
       }
     };
     write();
@@ -178,7 +188,7 @@ function FreeAreaVars() {
     return () => {
       cancelAnimationFrame(raf);
       stop();
-      for (const side of ["left", "right", "top", "bottom"]) host.style.removeProperty(`--orb-free-${side}`);
+      for (const side of ["left", "right", "top", "bottom"]) host.style.removeProperty(`--vx-free-${side}`);
     };
   }, [map]);
   return null;
@@ -187,7 +197,7 @@ function FreeAreaVars() {
 /**
  * Fit the AOI into the real free area of the map: the padding on every side
  * comes from the measured rects of the panels that are open now (the CSS
- * --orb-fit-* variables are the fallback where nothing covers a side).
+ * --vx-fit-* variables are the fallback where nothing covers a side).
  *
  *  - `fitKey` (new AOI, Fit button): always fits.
  *  - `layoutKey` (a panel opened / closed): refits only if the user has not
@@ -215,9 +225,7 @@ function FitController({
     const target = aoiRef.current;
     if (!target) return;
     const container = map.getContainer();
-    const shell = container.closest(".orb-shell");
-    const cs = shell ? getComputedStyle(shell) : null;
-    const fallback = (name: string) => Number.parseFloat(cs?.getPropertyValue(name) ?? "") || 12;
+    map.invalidateSize({ pan: false });
     const m = coveredInsets(container, FIT_GAP);
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     programmatic.current = true;
@@ -228,8 +236,8 @@ function FitController({
     }, 900);
     userMoved.current = false;
     map.fitBounds(boundsOf(target), {
-      paddingTopLeft: [m.left ?? fallback("--orb-fit-left"), m.top ?? fallback("--orb-fit-top")],
-      paddingBottomRight: [m.right ?? fallback("--orb-fit-right"), m.bottom ?? fallback("--orb-fit-bottom")],
+      paddingTopLeft: [m.left ?? FIT_GAP, m.top ?? FIT_GAP],
+      paddingBottomRight: [m.right ?? FIT_GAP, m.bottom ?? FIT_GAP],
       maxZoom: 10,
       animate: !reduceMotion,
       duration: 0.45,
@@ -309,7 +317,7 @@ function AoiDrawer({
       start = e.latlng;
       rectRef.current = L.rectangle(
         L.latLngBounds(start, start),
-        { color: ORBITAL.accent, weight: 2, dashArray: "4 3", fill: false },
+        { color: VX.draw, weight: 2, dashArray: "4 3", fill: false },
       ).addTo(map);
     };
     const onMouseMove = (e: L.LeafletMouseEvent) => {
@@ -354,7 +362,7 @@ function ScaleBar() {
   const map = useMap();
   useEffect(() => {
     const control = L.control.scale({
-      position: "bottomleft",
+      position: "bottomright",
       metric: true,
       imperial: false,
     });
@@ -367,32 +375,32 @@ function ScaleBar() {
 }
 
 // Leaflet paths take literal colours (canvas renderer), so these mirror the
-// ORBITAL tokens in styles/orbital.css: --orb-accent, --orb-focus, --orb-text.
-const ORBITAL = { accent: "#FF6A00", focus: "#8DDCFF", text: "#F5F7FA" } as const;
+// Vortex tokens in styles/vortex.css: cyan, violet, text accent, text.
+const VX = { aoi: "#7CC4FF", selected: "#9D74F0", draw: "#9DB8FF", text: "#F2F4F7" } as const;
 
-// Quiet, thin catalogue footprints; the selected one reads in the focus cyan.
+// Quiet, thin catalogue footprints; the selected one reads in violet.
 const FOOTPRINT_STYLE: L.PathOptions = {
-  color: ORBITAL.text,
+  color: VX.text,
   weight: 1,
   opacity: 0.2,
   fill: false,
   fillOpacity: 0,
 };
 const FOOTPRINT_SELECTED_STYLE: L.PathOptions = {
-  color: ORBITAL.focus,
+  color: VX.selected,
   weight: 1.5,
   opacity: 0.95,
   fill: true,
-  fillColor: ORBITAL.focus,
+  fillColor: VX.selected,
   fillOpacity: 0.06,
 };
-// Selected AOI: orange outline, no visible fill over the data (the invisible
+// Selected AOI: cyan outline, no visible fill over the data (the invisible
 // fill keeps clicks inside the rectangle behaving as before).
 const AOI_STYLE: L.PathOptions = {
-  color: ORBITAL.accent,
+  color: VX.aoi,
   weight: 2,
   fill: true,
-  fillColor: ORBITAL.accent,
+  fillColor: VX.aoi,
   fillOpacity: 0,
 };
 
@@ -454,6 +462,7 @@ function MapView({
   roleBefore,
   roleAfter,
   showAllFootprints,
+  showLegend = true,
   maxFootprints = 200,
 }: MapViewProps) {
   // Once a pair is loaded only the selected footprints stay (quiet map);
@@ -497,17 +506,18 @@ function MapView({
   const afterDate = viewer ? formatDate(viewer.later.startTime) : "";
 
   return (
-    <div className="orb-map">
+    <div className="vx-map">
       <MapContainer
         center={[20, 15]}
         zoom={2}
         minZoom={2}
         maxZoom={14}
         preferCanvas={true}
-        zoomControl={true}
+        zoomControl={false}
         attributionControl={true}
-        className="orb-leaflet"
+        className="vx-leaflet"
       >
+        <ZoomControl position="topright" />
         {CUSTOM_BASEMAP_URL ? (
           <Pane name="orbBasemap" style={{ zIndex: 200 }}>
             <TileLayer
@@ -523,7 +533,7 @@ function MapView({
             <Pane
               key={basemapId}
               name="orbBasemap"
-              className={`orb-pane-basemap orb-pane-basemap--${basemapId}`}
+              className={`vx-pane-basemap vx-pane-basemap--${basemapId}`}
               style={{ zIndex: 200 }}
             >
               <TileLayer
@@ -585,15 +595,17 @@ function MapView({
         {!CUSTOM_BASEMAP_URL && <BasemapControl value={basemapId} onChange={setBasemapId} />}
       </MapContainer>
       {compare && viewer && !compareReady && rendering && (
-        <div className="orb-panel orb-panel--glass orb-hint orb-hint--loading" role="status">
+        <Glass className="lg-panel vx-hint" role="status">
           <Spinner /> Rendering Before and After…
-        </div>
+        </Glass>
       )}
-      {viewer && <MapLegend viewer={viewer} layer={layer} pol={pol} saturation={saturation} />}
+      {viewer && showLegend && (
+        <MapLegend viewer={viewer} layer={layer} pol={pol} saturation={saturation} />
+      )}
       {drawMode && (
-        <div className="orb-panel orb-panel--glass orb-hint" role="status">
+        <Glass className="lg-panel vx-hint" role="status">
           Drag on the map to draw the area of interest
-        </div>
+        </Glass>
       )}
     </div>
   );

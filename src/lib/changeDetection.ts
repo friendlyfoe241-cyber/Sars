@@ -156,9 +156,9 @@ export function computeSaturation(
   return Math.max(1, Math.round(p98 * 2) / 2);
 }
 
-// ORBITAL diverging scale centred on zero (design system "scientific
+// Diverging scale centred on zero (design system "scientific
 // visualisation language"): decrease cyan, no difference neutral grey,
-// increase amber.  Keep in step with --orb-data-* in styles/orbital.css.
+// increase amber.  Keep in step with --vx-data-* in styles/vortex.css.
 const NEUTRAL = [190, 201, 210] as const; // #BEC9D2
 const NEGATIVE = [104, 197, 235] as const; // #68C5EB
 const POSITIVE = [243, 184, 90] as const; // #F3B85A

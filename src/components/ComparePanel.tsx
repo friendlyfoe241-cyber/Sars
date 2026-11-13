@@ -17,6 +17,8 @@ interface ComparePanelProps {
   computing: boolean;
   showAllFootprints: boolean;
   onToggleFootprints: (show: boolean) => void;
+  /** frame the area of interest on the map again */
+  onFit: () => void;
 }
 
 const LAYERS: { id: DisplayChoice; label: string }[] = [
@@ -37,18 +39,19 @@ export default function ComparePanel({
   computing,
   showAllFootprints,
   onToggleFootprints,
+  onFit,
 }: ComparePanelProps) {
   return (
     <>
       <Section title="Radar channel">
-        <div className="orb-segment-group orb-segment-group--fill" role="group" aria-label="Polarisation channel">
+        <div className="vx-segment-group vx-segment-group--fill" role="group" aria-label="Polarisation channel">
           {dataset.polarisations.map((p) => {
             const status = channelStatus[p] ?? "unavailable";
             return (
               <button
                 key={p}
                 type="button"
-                className="orb-segment"
+                className="vx-segment"
                 aria-pressed={p === pol}
                 disabled={status !== "ready"}
                 onClick={() => onPolChange(p)}
@@ -59,16 +62,16 @@ export default function ComparePanel({
             );
           })}
         </div>
-        <p className="orb-note orb-mono mt-2">{dataset.layers[pol] ?? ""}</p>
+        <p className="vx-note vx-mono mt-2">{dataset.layers[pol] ?? ""}</p>
       </Section>
 
       <Section title="Display layer">
-        <div className="orb-segment-group orb-segment-group--fill" role="group" aria-label="Display layer">
+        <div className="vx-segment-group vx-segment-group--fill" role="group" aria-label="Display layer">
           {LAYERS.map((l) => (
             <button
               key={l.id}
               type="button"
-              className="orb-segment"
+              className="vx-segment"
               aria-pressed={layer === l.id}
               disabled={l.id === "compare" && !canCompare}
               onClick={() => onLayerChange(l.id)}
@@ -78,9 +81,9 @@ export default function ComparePanel({
           ))}
         </div>
         {!canCompare && (
-          <p className="orb-note mt-2">Compare needs a loaded Before and After pair for this channel.</p>
+          <p className="vx-note mt-2">Compare needs a loaded Before and After pair for this channel.</p>
         )}
-        <p className="orb-note mt-2 flex items-center gap-2" role="status">
+        <p className="vx-note mt-2 flex items-center gap-2" role="status">
           {computing ? (
             <>
               <Spinner /> Rendering…
@@ -110,13 +113,16 @@ export default function ComparePanel({
         <label className="flex min-h-11 cursor-pointer items-center gap-3 text-[13px]">
           <input
             type="checkbox"
-            className="size-4 accent-[var(--orb-accent)]"
+            className="size-5 accent-[var(--vx-accent)]"
             checked={showAllFootprints}
             onChange={(e) => onToggleFootprints(e.target.checked)}
           />
           <span>Show other catalogue footprints</span>
         </label>
-        <p className="orb-note">Only the Before and After footprints are drawn while a comparison is loaded.</p>
+        <p className="vx-note">Only the Before and After footprints are drawn while a comparison is loaded.</p>
+        <button type="button" onClick={onFit} className="vx-button vx-button--block mt-2">
+          Fit map to area
+        </button>
       </Section>
     </>
   );

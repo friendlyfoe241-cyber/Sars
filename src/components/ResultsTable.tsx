@@ -20,7 +20,7 @@ const CAVEAT =
 
 function Message({ busy, children }: { busy?: boolean; children: string }) {
   return (
-    <p className="orb-instr-empty" role="status">
+    <p className="vx-instr-empty" role="status">
       {busy && <Spinner />}
       <span>{children}</span>
     </p>
@@ -66,7 +66,7 @@ const ROWS: Row[] = [
     value: (c) => (
       <>
         {formatPlain(c.change.validFraction * 100)}%
-        <span className="orb-itable__sub">
+        <span className="vx-itable__sub">
           {formatCount(c.change.validPixels)} of {formatCount(c.change.totalPixels)} px
         </span>
       </>
@@ -95,8 +95,8 @@ function ResultsTable({ status, stats, channel, both, onBoth }: ResultsTableProp
   const unit = own.change.unit;
 
   return (
-    <div className="orb-instr-scroll" role="region" aria-label="Results table, scrollable" tabIndex={0}>
-      <table className="orb-itable orb-itable--results">
+    <div className="vx-instr-scroll" role="region" aria-label="Results table, scrollable" tabIndex={0}>
+      <table className="vx-itable vx-itable--results">
         <caption className="sr-only">
           Radar brightness change, after − before · {channels.join(" and ")} · {unit}
         </caption>
@@ -104,7 +104,7 @@ function ResultsTable({ status, stats, channel, both, onBoth }: ResultsTableProp
           <tr>
             <th scope="col">Measurement</th>
             {channels.map((c) => (
-              <th key={c} scope="col" className="orb-itable__num">
+              <th key={c} scope="col" className="vx-itable__num">
                 {channels.length > 1 ? `${c} · ` : ""}
                 {unit}
               </th>
@@ -115,13 +115,13 @@ function ResultsTable({ status, stats, channel, both, onBoth }: ResultsTableProp
           {ROWS.map((r) => (
             <tr key={r.key}>
               <th scope="row">
-                <span className="orb-itable__name">{r.label}</span>
-                <span className="orb-itable__sub orb-itable__note" title={r.note}>
+                <span className="vx-itable__name">{r.label}</span>
+                <span className="vx-itable__sub vx-itable__note" title={r.note}>
                   {r.note}
                 </span>
               </th>
               {channels.map((c) => (
-                <td key={c} className="orb-itable__num">
+                <td key={c} className="vx-itable__num">
                   {stats.byChannel[c] ? r.value(stats.byChannel[c]) : "—"}
                 </td>
               ))}
@@ -129,30 +129,30 @@ function ResultsTable({ status, stats, channel, both, onBoth }: ResultsTableProp
           ))}
           <tr>
             <th scope="row">
-              <span className="orb-itable__name">Affected area</span>
-              <span className="orb-itable__sub orb-itable__note" title="Needs a classification method, change mask, pixel areas and validation — not available from browse quicklooks.">
+              <span className="vx-itable__name">Affected area</span>
+              <span className="vx-itable__sub vx-itable__note" title="Needs a classification method, change mask, pixel areas and validation — not available from browse quicklooks.">
                 Needs a classification method, change mask, pixel areas and validation — not available from
                 browse quicklooks.
               </span>
             </th>
-            <td className="orb-itable__num" colSpan={channels.length}>
+            <td className="vx-itable__num" colSpan={channels.length}>
               Not calculated
             </td>
           </tr>
         </tbody>
       </table>
-      <p className="orb-instr-foot">
+      <p className="vx-instr-foot">
         {stats.channels.length > 1 && (
           <button
             type="button"
-            className="orb-itable__link orb-itable__link--first"
+            className="vx-itable__link vx-itable__link--first"
             aria-pressed={both}
             onClick={() => onBoth(!both)}
           >
             {both ? "Show selected channel only" : `Show ${stats.channels.join(" and ")} side by side`}
           </button>
         )}
-        <span className="orb-mono">
+        <span className="vx-mono">
           Method {METHOD_VERSION} · after − before · {channels.join(" + ")} · unit {unit}
         </span>
         <br />
