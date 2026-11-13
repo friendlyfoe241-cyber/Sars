@@ -91,10 +91,13 @@ export interface ChangeSummary {
   p90: number;
 }
 
-/** Robust summary of the difference distribution over valid pixels. */
-export function summarizeChange(
-  before: Uint8ClampedArray,
-  after: Uint8ClampedArray,
+/**
+ * Robust summary of a DN-delta histogram (over valid pixels).  The one place
+ * the summary statistics are derived, so every consumer shows the same
+ * numbers.
+ */
+export function summarizeFromHistogram(
+  hist: DeltaHistogram,
   encoding: RasterEncoding,
   unit: string,
 ): ChangeSummary {
@@ -104,7 +107,6 @@ export function summarizeChange(
   ) {
     throw new Error("db_linear encoding requires dbMin and dbMax");
   }
-  const hist = deltaHistogram(before, after, encoding.nodata);
   const scale = deltaScale(encoding);
   const count = hist.valid;
   let sum = 0;
@@ -124,6 +126,16 @@ export function summarizeChange(
     p75: pct(0.75),
     p90: pct(0.9),
   };
+}
+
+/** Robust summary of the difference distribution over valid pixels. */
+export function summarizeChange(
+  before: Uint8ClampedArray,
+  after: Uint8ClampedArray,
+  encoding: RasterEncoding,
+  unit: string,
+): ChangeSummary {
+  return summarizeFromHistogram(deltaHistogram(before, after, encoding.nodata), encoding, unit);
 }
 
 /**

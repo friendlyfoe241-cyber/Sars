@@ -195,11 +195,17 @@ export default function App() {
     [layer],
   );
   const layerRequest = useMemo(() => layersForDisplay(display), [display]);
-  const { summary, urls, fallbackUrl, rendering, saturation } = useChangeLayers(
+  const { urls, fallbackUrl, rendering, saturation } = useChangeLayers(
     activePair,
     channel,
     layerRequest,
   );
+
+  // One set of statistics per channel, shared by the left panel, the results
+  // table and the graph.  Other channels are only computed for side by side.
+  const [bothChannels, setBothChannels] = useState(false);
+  const pairStats = usePairStats(activePair, channel, bothChannels);
+  const summary = pairStats?.byChannel[channel]?.change ?? null;
 
   // Memoised on its real inputs: a fresh object every render would defeat
   // memo() on the panels that receive it.
@@ -650,7 +656,6 @@ export default function App() {
   const selectedScene = (selectedSceneId && sceneById.get(selectedSceneId)) || null;
 
   // ---- instrument row: derived from the same key-gated active pair ------
-  const pairStats = usePairStats(activePair);
   const pairLoaded = viewState.kind === "ready" || viewState.kind === "no-valid-pixels";
   // Scenes known to lack usable rasters: every suggested pair containing the
   // scene is metadata-only, or the selected pair is known unavailable.
@@ -898,7 +903,13 @@ export default function App() {
             onSelectScene={setSelectedSceneId}
           />
         }
-        results={<ResultsTable status={viewState} stats={pairStats} channel={channel} />}
+        results={<ResultsTable
+            status={viewState}
+            stats={pairStats}
+            channel={channel}
+            both={bothChannels}
+            onBoth={setBothChannels}
+          />}
         graph={
           <TemporalGraph
             status={viewState}

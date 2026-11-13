@@ -1,4 +1,4 @@
-import { memo, useState, type ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { METHOD_VERSION } from "../lib/selection";
 import { formatCount, formatPlain, formatSigned } from "../lib/format";
 import type { ChannelStats, PairStats } from "../lib/usePairStats";
@@ -10,6 +10,9 @@ interface ResultsTableProps {
   stats: PairStats | null;
   /** selected channel (always one the pair has loaded) */
   channel: string;
+  /** show every ready channel side by side (the parent computes their statistics) */
+  both: boolean;
+  onBoth: (both: boolean) => void;
 }
 
 const CAVEAT =
@@ -87,9 +90,7 @@ const ROWS: Row[] = [
   },
 ];
 
-function ResultsTable({ status, stats, channel }: ResultsTableProps) {
-  const [both, setBoth] = useState(false);
-
+function ResultsTable({ status, stats, channel, both, onBoth }: ResultsTableProps) {
   if (status.kind === "loading-raster") return <Message busy>Loading comparison…</Message>;
   if (status.kind === "metadata-only") {
     return <Message>Metadata only: quicklook rasters are not available for this pair, so no statistics are calculated.</Message>;
@@ -119,7 +120,7 @@ function ResultsTable({ status, stats, channel }: ResultsTableProps) {
                 type="button"
                 className="orb-itable__link"
                 aria-pressed={both}
-                onClick={() => setBoth((v) => !v)}
+                onClick={() => onBoth(!both)}
               >
                 {both ? "Show selected channel only" : `Show ${stats.channels.join(" and ")} side by side`}
               </button>

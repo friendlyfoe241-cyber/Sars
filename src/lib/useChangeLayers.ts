@@ -17,7 +17,6 @@
 // revoked when the identity changes and on unmount.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { summarizeChange, type ChangeSummary } from "./changeDetection";
 import { renderChange, renderObservation } from "./raster";
 import type { PairDataset } from "./rasterSource";
 
@@ -66,8 +65,6 @@ function newCache(instance: number): OverlayCache {
 }
 
 export interface ChangeLayers {
-  /** statistics for `channel`, or null (no pair, unknown channel, failure) */
-  summary: ChangeSummary | null;
   /** blob URL per requested layer that is rendered; absent while rendering */
   urls: LayerUrls;
   /**
@@ -100,20 +97,6 @@ export function useChangeLayers(
       : null;
   const viewer = pair ? pair.viewer : null;
   const layerKey = layers.join(",");
-
-  const summary = useMemo(() => {
-    if (!viewer || !rasters) return null;
-    try {
-      return summarizeChange(
-        rasters.before.red,
-        rasters.after.red,
-        viewer.encoding,
-        viewer.changeScale.unit,
-      );
-    } catch {
-      return null;
-    }
-  }, [viewer, rasters]);
 
   // One cache per pair build, held in a ref and replaced when the build
   // identity changes.  Creating it here is idempotent (StrictMode renders
@@ -216,7 +199,6 @@ export function useChangeLayers(
       : null;
 
   return {
-    summary,
     urls,
     fallbackUrl,
     rendering,

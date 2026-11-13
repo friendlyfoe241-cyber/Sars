@@ -7,7 +7,7 @@ import { useMemo, useRef } from "react";
 import {
   deltaHistogram,
   perDateStats,
-  summarizeChange,
+  summarizeFromHistogram,
   type ChangeSummary,
   type DeltaHistogram,
   type PerDateStats,
@@ -46,7 +46,17 @@ interface Cache {
   byChannel: Map<string, ChannelStats>;
 }
 
-export function usePairStats(pair: PairDataset | null): PairStats | null {
+/**
+ * Statistics for `channel` of the pair; with `allChannels` also for the other
+ * ready channels (computed lazily, only when asked for, e.g. side by side).
+ * One delta histogram per channel feeds both the summary and the
+ * distribution, and each channel is computed once per pair build.
+ */
+export function usePairStats(
+  pair: PairDataset | null,
+  channel: string,
+  allChannels = false,
+): PairStats | null {
   const cacheRef = useRef<Cache | null>(null);
   return useMemo(() => {
     if (!pair) return null;
@@ -55,18 +65,21 @@ export function usePairStats(pair: PairDataset | null): PairStats | null {
     }
     const cache = cacheRef.current;
     const { viewer } = pair;
-    const channels = viewer.polarisations.filter((p) => pair.channelStatus[p] === "ready");
+    const channels = viewer.polarisations.filter(
+      (p) => pair.channelStatus[p] === "ready" && pair.perPol[p],
+    );
+    const wanted = allChannels ? channels : channels.filter((c) => c === channel);
     const byChannel: Record<string, ChannelStats> = {};
-    for (const ch of channels) {
+    for (const ch of wanted) {
       let stats = cache.byChannel.get(ch);
       if (!stats) {
         const r = pair.perPol[ch];
-        if (!r) continue;
         try {
+          const delta = deltaHistogram(r.before.red, r.after.red, viewer.encoding.nodata);
           stats = {
-            change: summarizeChange(r.before.red, r.after.red, viewer.encoding, viewer.changeScale.unit),
+            change: summarizeFromHistogram(delta, viewer.encoding, viewer.changeScale.unit),
             dates: perDateStats([r.before.red, r.after.red], viewer.encoding.nodata),
-            delta: deltaHistogram(r.before.red, r.after.red, viewer.encoding.nodata),
+            delta,
             saturation: r.saturation,
           };
         } catch {
@@ -83,10 +96,10 @@ export function usePairStats(pair: PairDataset | null): PairStats | null {
     return {
       instance: pair.instance,
       acquisitions,
-      channels: Object.keys(byChannel),
+      channels,
       unit: viewer.changeScale.unit,
       displayDn: viewer.encoding.type === "quicklook_dn",
       byChannel,
     };
-  }, [pair]);
+  }, [pair, channel, allChannels]);
 }
