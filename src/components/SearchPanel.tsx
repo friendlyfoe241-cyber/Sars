@@ -1,12 +1,11 @@
+import { useState } from "react";
 import { Section } from "./ui";
 import { formatAoi, formatLatLon, type Aoi } from "../lib/aoi";
 
 export const AOI_SIZES_KM = [25, 50, 100, 200];
 
 interface SearchPanelProps {
-  query: string;
-  onQueryChange: (q: string) => void;
-  onLocationSearch: () => void;
+  onLocationSearch: (query: string) => void;
   searchingLocation: boolean;
   locationLabel: string;
   locationError: string | null;
@@ -22,8 +21,6 @@ interface SearchPanelProps {
 }
 
 export default function SearchPanel({
-  query,
-  onQueryChange,
   onLocationSearch,
   searchingLocation,
   locationLabel,
@@ -38,20 +35,22 @@ export default function SearchPanel({
   exampleLabel,
   onExample,
 }: SearchPanelProps) {
+  // Local to the panel: typing re-renders only this component.
+  const [query, setQuery] = useState("");
   return (
     <div>
       <Section title="Location">
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            onLocationSearch();
+            onLocationSearch(query);
           }}
           className="flex gap-1.5"
         >
           <input
             type="text"
             value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
+            onChange={(e) => setQuery(e.target.value)}
             placeholder="Place name or lat, lon"
             aria-label="Location search"
             className="min-w-0 flex-1 rounded-[3px] border border-app-border bg-white px-2 py-1.5 text-[13px] text-app-text placeholder:text-app-muted focus:border-app-accent focus:outline-none"
@@ -75,7 +74,10 @@ export default function SearchPanel({
         {exampleLabel && (
           <button
             type="button"
-            onClick={onExample}
+            onClick={() => {
+              setQuery(exampleLabel);
+              onExample();
+            }}
             className="mt-1.5 text-[11px] text-app-accent underline decoration-app-border underline-offset-2 hover:decoration-app-accent"
           >
             Example: {exampleLabel}

@@ -58,7 +58,6 @@ export default function App() {
   const [example, setExample] = useState<PreparedDataset | null>(null);
 
   // ---- location and AOI ---------------------------------------------
-  const [query, setQuery] = useState("");
   const [locationLabel, setLocationLabel] = useState("");
   const [locationError, setLocationError] = useState<string | null>(null);
   const [searchingLocation, setSearchingLocation] = useState(false);
@@ -150,18 +149,37 @@ export default function App() {
   const layerRequest = useMemo(() => [layer], [layer]);
   const { summary, urls, rendering, saturation } = useChangeLayers(activePair, channel, layerRequest);
 
-  const viewState = deriveViewState({
-    aoi,
-    searching,
-    searched,
-    searchError,
-    sceneCount: scenes.length,
-    suggestedPairCount: pairs.length,
-    pairState,
-    currentPairKey,
-    activePair,
-    summary,
-  });
+  // Memoised on its real inputs: a fresh object every render would defeat
+  // memo() on the panels that receive it.
+  const sceneCount = scenes.length;
+  const suggestedPairCount = pairs.length;
+  const viewState = useMemo(
+    () =>
+      deriveViewState({
+        aoi,
+        searching,
+        searched,
+        searchError,
+        sceneCount,
+        suggestedPairCount,
+        pairState,
+        currentPairKey,
+        activePair,
+        summary,
+      }),
+    [
+      aoi,
+      searching,
+      searched,
+      searchError,
+      sceneCount,
+      suggestedPairCount,
+      pairState,
+      currentPairKey,
+      activePair,
+      summary,
+    ],
+  );
   const ai: AiState =
     aiEntry && aiEntry.key === currentSelectionKey ? aiEntry.state : IDLE_AI;
 
@@ -256,8 +274,8 @@ export default function App() {
     [aoiSizeKm, commitAoi],
   );
 
-  const handleLocationSearch = useCallback(async () => {
-    const text = query.trim();
+  const handleLocationSearch = useCallback(async (input: string) => {
+    const text = input.trim();
     if (!text) return;
     const coords = parseCoordinates(text);
     if (coords) {
@@ -286,7 +304,7 @@ export default function App() {
     } finally {
       setSearchingLocation(false);
     }
-  }, [query, applyLocation]);
+  }, [applyLocation]);
 
   const handlePickLocation = useCallback(
     (lat: number, lon: number) => {
@@ -319,7 +337,6 @@ export default function App() {
     const m = example.manifest;
     commitAoi(m.studyArea.bounds, { fit: true });
     setLocationLabel(`${m.studyArea.name}, ${m.studyArea.country}`);
-    setQuery(`${m.studyArea.name}`);
   }, [example, commitAoi]);
 
   // ---- catalogue search ---------------------------------------------
@@ -565,8 +582,6 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-[352px] shrink-0 flex-col overflow-y-auto border-r border-app-border bg-app-bg">
           <SearchPanel
-            query={query}
-            onQueryChange={setQuery}
             onLocationSearch={handleLocationSearch}
             searchingLocation={searchingLocation}
             locationLabel={locationLabel}
