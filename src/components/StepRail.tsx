@@ -16,14 +16,14 @@ export default function StepRail({
   available: Record<StepId, boolean>;
   onPick: (step: StepId) => void;
 }) {
-  const [wide, setWide] = useState(() => window.innerWidth >= 1100);
+  const [vw, setVw] = useState(() => window.innerWidth);
   useEffect(() => {
     let raf = 0;
     const on = () => {
       if (raf) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
-        setWide(window.innerWidth >= 1100);
+        setVw(window.innerWidth);
       });
     };
     window.addEventListener("resize", on);
@@ -32,7 +32,10 @@ export default function StepRail({
       window.removeEventListener("resize", on);
     };
   }, []);
-  const BW = wide ? 100 : 48;
+  const wide = vw >= 1100;
+  // icons only below 1100px; 44px targets on the narrowest phones so the
+  // header pill fits 320px
+  const BW = wide ? 100 : vw < 360 ? 44 : 48;
   const idx = Math.max(0, STEPS.findIndex((s) => s.id === active));
 
   return (
