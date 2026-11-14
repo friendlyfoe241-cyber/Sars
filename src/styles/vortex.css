@@ -42,11 +42,6 @@
   --vx-shadow: 0 16px 48px rgb(0 0 0 / 45%);
   --vx-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --vx-control-h: 44px;
-  /* the free map area, published by MapView from measured covers */
-  --vx-free-left: 12px;
-  --vx-free-right: 12px;
-  --vx-free-top: 12px;
-  --vx-free-bottom: 12px;
 }
 
 .vx-mono {
@@ -420,18 +415,107 @@
     4px 4px;
 }
 
-/* ---- step panel, phone sheet, edge tab ------------------------------------- */
-.vx-side > .lg-c {
-  height: 100%;
+/* ---- page frame ------------------------------------------------------------
+ * The workspace is a frame filling the viewport: the header pill on top and
+ * below it ONE page per step.  Each page is a grid; the map is a region of
+ * that grid (an empty [data-map-slot] cell the persistent .vx-stage is laid
+ * over, see MapStage.tsx).  Content regions scroll inside themselves; the
+ * frame never scrolls.
+ *
+ *   < 1024px (or short landscape)   head / map / scrolling content column
+ *   short landscape >= 640px         head / map | scrolling content column
+ *   >= 1024 x 720                    per-step grid (below)                    */
+.vx-frame {
+  --vx-page-travel: 96px;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
 }
-.vx-sheet > .vx-side {
-  height: 100%;
+.vx-frame__head {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  padding: 16px 16px 0;
 }
-/* the phone sheet collapses to its header bar by sliding down */
-.vx-sheet {
-  transition: transform var(--vx-dur) var(--vx-ease);
+.vx-frame__body {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.vx-page {
+  --vx-gap: 16px;
+  --vx-map-h: clamp(280px, 50vh, 560px);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  gap: var(--vx-gap);
+  padding: var(--vx-gap);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto var(--vx-map-h) minmax(0, 1fr);
+  grid-template-areas: "head" "map" "content";
+}
+.vx-page[data-locked] {
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas: "head" "content";
+}
+.vx-page__head {
+  grid-area: head;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding-inline: 4px;
+}
+.vx-page__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  color: var(--vx-flare);
+  background: rgba(79, 70, 229, 0.18);
+  box-shadow: inset 1px 1px 0 rgba(157, 184, 255, 0.35);
+}
+.vx-page__blurb {
+  margin: 0;
+  overflow: hidden;
+  color: var(--vx-text-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vx-page__map {
+  grid-area: map;
+  min-width: 0;
+  min-height: 0;
+}
+.vx-page__content {
+  grid-area: content;
+  display: flex;
+  flex-direction: column;
+  gap: var(--vx-gap);
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+.vx-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vx-gap);
+  min-width: 0;
+  min-height: 0;
 }
 .vx-step-heading {
+  display: inline-block;
   margin: 0;
   font-size: 19px;
   font-weight: 600;
@@ -439,7 +523,251 @@
   letter-spacing: -0.005em;
   outline: none;
 }
-/* 44px square icon buttons (pin, tuck) */
+.vx-step-heading:focus-visible {
+  outline: 2px solid var(--vx-focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* glass panels of a page */
+.vx-panel {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 28px;
+}
+.vx-panel > .lg-c {
+  display: flex !important;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.vx-panel__head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 6px 12px 2px 20px;
+  border-bottom: 1px solid var(--vx-border);
+}
+.vx-panel__title {
+  margin: 0;
+  font: 600 11px/16px var(--vx-font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vx-flare);
+}
+.vx-panel__meta {
+  color: var(--vx-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.vx-panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.vx-panel__body:not(.vx-scroll) {
+  display: flex;
+  flex-direction: column;
+}
+/* stacked pages: tables and the graph get a sensible own height */
+.vx-panel--table .vx-instr-scroll {
+  max-height: 70vh;
+}
+.vx-panel--graph {
+  height: 340px;
+}
+
+/* suggested pairs */
+.vx-pair-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 8px;
+}
+.vx-pair-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.vx-pair-card[aria-current] {
+  box-shadow: inset 0 0 0 1.5px var(--vx-flare);
+}
+
+/* a locked step: one centred card on an otherwise empty page */
+.vx-empty {
+  display: grid;
+  flex: 1 0 auto;
+  place-items: center;
+  padding-block: 8px;
+}
+.vx-empty__card {
+  width: min(560px, 100%);
+  border-radius: 32px;
+}
+
+/* the map stage: a rounded, glass-framed box laid over the page's map slot */
+.vx-stage {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: 28px;
+  background: #04050b;
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.vx-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1100;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 1.5px 1.5px 0 rgba(255, 255, 255, 0.32),
+    inset -1px -1px 0 rgba(255, 255, 255, 0.08);
+}
+.vx-stage[data-hidden="true"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+.vx-stage__expand {
+  position: absolute;
+  z-index: 1000;
+  left: 12px;
+  bottom: 12px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--vx-text);
+  cursor: pointer;
+}
+.vx-stage__expand > .lg-c {
+  display: grid !important;
+  place-items: center;
+  height: 100%;
+}
+.vx-stage__expand[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1.5px var(--vx-flare);
+}
+
+@media (max-width: 767px) {
+  .vx-frame__head {
+    padding: 12px 12px 0;
+  }
+  .vx-page {
+    --vx-gap: 12px;
+    --vx-map-h: clamp(200px, 42vh, 420px);
+  }
+  .vx-page__icon {
+    display: none;
+  }
+  .vx-page__blurb {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
+  }
+}
+
+/* short landscape screens: map on the left at full height, content beside it */
+@media (min-width: 640px) and (max-height: 719px) and (orientation: landscape) {
+  .vx-page {
+    --vx-gap: 12px;
+    grid-template-columns: minmax(0, 1.25fr) minmax(300px, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "head head" "map content";
+  }
+  .vx-page[data-locked] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "head" "content";
+  }
+}
+
+/* desktop: every step has its own composition around the map */
+@media (min-width: 1024px) and (min-height: 720px) {
+  .vx-page {
+    padding: 16px 20px 20px;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .vx-page__content {
+    display: contents;
+  }
+  /* (outranks the per-step compositions below) */
+  .vx-page[data-locked][data-step] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "head" "content";
+  }
+  .vx-page[data-locked] .vx-page__content {
+    display: flex;
+  }
+  .vx-panel--table .vx-instr-scroll {
+    max-height: none;
+  }
+  .vx-panel--graph {
+    height: auto;
+  }
+  .vx-panel--grow {
+    flex: 1 1 auto;
+  }
+  /* map ~70% | search controls */
+  .vx-page[data-step="locate"] {
+    grid-template-columns: minmax(0, 1fr) clamp(320px, 30vw, 420px);
+    grid-template-areas: "head head" "map side";
+  }
+  /* map ~45% over the scene details | observations table, full height */
+  .vx-page[data-step="scenes"] {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    grid-template-rows: auto minmax(280px, 1.2fr) minmax(0, 1fr);
+    grid-template-areas: "head head" "map table" "info table";
+  }
+  /* pairs and the manual choice | map with the two footprints */
+  .vx-page[data-step="pairs"] {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "head head" "list map";
+  }
+  /* map ~70% with the divider | display controls */
+  .vx-page[data-step="change"] {
+    grid-template-columns: minmax(0, 1fr) clamp(320px, 28vw, 400px);
+    grid-template-areas: "head head" "map side";
+  }
+  /* map ~40% over the explanation | results table over the graph */
+  .vx-page[data-step="explain"] {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    grid-template-rows: auto minmax(280px, 1fr) minmax(0, 1fr);
+    grid-template-areas: "head head" "map results" "ai graph";
+  }
+}
+
+/* phones: the map can take the whole page (and back) */
+.vx-page[data-map-expanded] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas: "head" "map";
+}
+.vx-page[data-map-expanded] .vx-page__content {
+  display: none;
+}
+
+/* 44px square icon buttons (legend fold) */
 .vx-icon-button {
   display: inline-grid;
   place-items: center;
@@ -459,42 +787,11 @@
   background: rgba(255, 255, 255, 0.1);
   color: var(--vx-text);
 }
-.vx-icon-button[aria-pressed="true"] {
-  background: rgba(157, 184, 255, 0.2);
-  box-shadow: inset 0 0 0 1.5px var(--vx-flare);
-  color: var(--vx-text);
-}
-/* the tucked panel: a slim glass handle flush with the left edge */
-.vx-edge-tab {
-  position: absolute;
-  z-index: 999;
-  left: 0;
-  top: calc(50% - 48px);
-  width: 48px;
-  height: 96px;
-  padding: 0;
-  border: 0;
-  border-radius: 0 22px 22px 0;
-  background: transparent;
-  color: var(--vx-text);
-  cursor: pointer;
-}
-.vx-edge-tab > .lg-c {
-  display: grid !important;
-  place-items: center;
-  height: 100%;
-}
-.vx-edge-tab:hover {
-  color: #fff;
-}
-.vx-edge-tab:focus-visible {
-  outline-offset: -3px;
-}
 .vx-rail-indicator {
   transition: transform var(--vx-dur) var(--vx-ease);
 }
 
-/* ---- sidebar scroller ----------------------------------------------------- */
+/* ---- scrollers ---------------------------------------------------------------- */
 .vx-scroll {
   overflow-x: hidden;
   overflow-y: auto;
@@ -513,13 +810,13 @@
   position: absolute;
   inset: 0;
 }
-/* Legend: bottom-left of the free map area.  On phones the legend lives in
-   the sidebar instead (variant "inline"). */
+/* Legend: bottom-left of the map stage.  On phones and on the Change and
+   Explain pages the legend sits in the page instead (variant "inline"). */
 .vx-legend {
   position: absolute;
   z-index: 900;
-  left: var(--vx-free-left);
-  bottom: var(--vx-free-bottom);
+  left: 12px;
+  bottom: 12px;
   width: min(248px, calc(100% - 24px));
   border-radius: 22px;
 }
@@ -559,13 +856,11 @@
 .vx-hint {
   position: absolute;
   z-index: 900;
-  left: calc(
-    var(--vx-free-left) + (100% - var(--vx-free-left) - var(--vx-free-right)) / 2
-  );
-  top: var(--vx-free-top);
+  left: 50%;
+  top: 12px;
   transform: translateX(-50%);
   width: max-content;
-  max-width: calc(100% - var(--vx-free-left) - var(--vx-free-right));
+  max-width: calc(100% - 24px);
   border-radius: 999px;
   font-size: 12.5px;
 }

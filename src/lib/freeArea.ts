@@ -1,107 +1,27 @@
-// The part of the map not covered by the floating glass surfaces, measured
-// from the real rects of whatever is on screen now.  Used to fit the AOI and
-// to place the divider and the map furniture.  Pure DOM reads; no state.
-//
-// A surface declares which edge of the map it covers with
-// `data-cover="left|right|top|bottom"` anywhere inside `.vx-shell`.  The
-// sidebar animates its own geometry, so it declares its final rect with a
-// small invisible marker element instead of being measured mid-flight.
+// The map lives in its own box (the map stage inside each step page), so no
+// glass surface floats over it any more: the free map area is the whole
+// stage.  Fitting the AOI uses a small constant padding inside the stage and
+// the compare divider spans the stage from edge to edge.
 
-/** Distance in px from each container edge to the nearest covering surface
- *  (gap included), or null when nothing covers that side. */
-export interface Insets {
-  left: number | null;
-  right: number | null;
-  top: number | null;
-  bottom: number | null;
-}
-
-/** Dispatched on `window` when a surface moved without resizing. */
-export const LAYOUT_EVENT = "vx-layout";
-
-function overlaps(r: DOMRect, c: DOMRect): boolean {
-  return (
-    r.width > 0 &&
-    r.height > 0 &&
-    r.right > c.left &&
-    r.left < c.right &&
-    r.bottom > c.top &&
-    r.top < c.bottom
-  );
-}
-
-function covers(container: HTMLElement): HTMLElement[] {
-  const shell = container.closest(".vx-shell");
-  return shell ? Array.from(shell.querySelectorAll<HTMLElement>("[data-cover]")) : [];
-}
-
-export function coveredInsets(container: HTMLElement, gap: number): Insets {
-  const cr = container.getBoundingClientRect();
-  const out: Insets = { left: null, right: null, top: null, bottom: null };
-  const take = (side: keyof Insets, value: number) => {
-    out[side] = Math.max(out[side] ?? 0, value);
-  };
-  for (const el of covers(container)) {
-    if (el.hidden) continue;
-    const side = el.dataset.cover as keyof Insets | undefined;
-    if (!side) continue;
-    const r = el.getBoundingClientRect();
-    if (!overlaps(r, cr)) continue;
-    if (side === "left") take(side, r.right - cr.left + gap);
-    else if (side === "right") take(side, cr.right - r.left + gap);
-    else if (side === "top") take(side, r.bottom - cr.top + gap);
-    else if (side === "bottom") take(side, cr.bottom - r.top + gap);
-  }
-  // a degenerate free area (surfaces cover nearly everything): ignore the lot
-  const w = cr.width - (out.left ?? 0) - (out.right ?? 0);
-  const h = cr.height - (out.top ?? 0) - (out.bottom ?? 0);
-  if (w < 160 || h < 100) return { left: null, right: null, top: null, bottom: null };
-  return out;
-}
+/** Padding in px between the stage edge and a fitted area of interest. */
+export const FIT_PADDING = 24;
 
 /**
- * Calls `cb` whenever the map or any covering surface changes size, appears,
- * disappears or moves.  Returns the disposer.
+ * Calls `cb` (at most once per animation frame) whenever `el` changes size.
+ * Returns the disposer.
  */
-export function observeLayout(container: HTMLElement, rawCb: () => void): () => void {
-  const shell = container.closest(".vx-shell");
-  // Every source funnels through one rAF so a burst of events (dragging the
-  // window edge, a panel morph) fires the callback at most once per frame.
+export function observeSize(el: HTMLElement, cb: () => void): () => void {
   let raf = 0;
-  const cb = () => {
+  const ro = new ResizeObserver(() => {
     if (raf) return;
     raf = requestAnimationFrame(() => {
       raf = 0;
-      rawCb();
-    });
-  };
-  const ro = new ResizeObserver(cb);
-  const watch = () => {
-    ro.disconnect();
-    ro.observe(container);
-    covers(container).forEach((el) => ro.observe(el));
-  };
-  watch();
-  let mo: MutationObserver | null = null;
-  if (shell) {
-    mo = new MutationObserver((records) => {
-      // surfaces mounting or unmounting: watch the new set
-      if (records.some((r) => r.type === "childList")) watch();
       cb();
     });
-    // Surfaces are direct children of the shell, so only its own child list
-    // matters (a subtree watch would fire for every Leaflet tile while panning).
-    mo.observe(shell, { childList: true });
-    mo.observe(shell, { attributes: true, subtree: true, attributeFilter: ["hidden", "data-cover", "data-open"] });
-  }
-  window.addEventListener(LAYOUT_EVENT, cb);
-  window.addEventListener("resize", cb);
+  });
+  ro.observe(el);
   return () => {
     if (raf) cancelAnimationFrame(raf);
-    raf = 0;
     ro.disconnect();
-    mo?.disconnect();
-    window.removeEventListener(LAYOUT_EVENT, cb);
-    window.removeEventListener("resize", cb);
   };
 }

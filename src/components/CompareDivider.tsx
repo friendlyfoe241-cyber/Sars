@@ -3,7 +3,7 @@ import L from "leaflet";
 import { ImageOverlay, useMap } from "react-leaflet";
 import { MoveHorizontal } from "lucide-react";
 import Glass from "./glass/Glass";
-import { coveredInsets, observeLayout } from "../lib/freeArea";
+import { observeSize } from "../lib/freeArea";
 
 /**
  * Draggable before / after comparison on the one Leaflet map.
@@ -28,14 +28,15 @@ const GAP = 8;
 const BIG = 100000;
 
 interface Range {
+  /** container px: the divider runs across the whole map stage */
   left: number;
   right: number;
-  /** container px; labels sit below this when the top bar overlaps the map */
+  /** label top */
   top: number;
-  /** the divider line runs from here to `lineBottom` (free area, not under the panels) */
+  /** the divider line runs from here to `lineBottom` */
   lineTop: number;
   lineBottom: number;
-  /** grip top: vertically centred in the free area */
+  /** grip top: vertically centred on the stage */
   gripY: number;
   labelLeft: number;
   labelRight: number;
@@ -61,34 +62,29 @@ function valueText(pct: number): string {
   return `${pct}% — before on the left, after on the right`;
 }
 
-/** The part of the map not covered by the floating panels. */
-function measure(container: HTMLElement): Range {
-  const cr = container.getBoundingClientRect();
-  const ins = coveredInsets(container, GAP);
-  let left = ins.left ?? 0;
-  let right = cr.width - (ins.right ?? 0);
-  if (right - left < 160) {
-    left = 0;
-    right = cr.width;
-  }
-  const lineTop = ins.top ?? 0;
-  const lineBottom = cr.height - (ins.bottom ?? 0);
-  const anyPanel = ins.left !== null || ins.right !== null || ins.top !== null || ins.bottom !== null;
-  // The zoom / basemap controls sit at the top-right of the free area (on
-  // phones just the 44px basemap button): the After label stays left of them.
+/** The map stage is the divider's whole range (nothing floats over it). */
+function measure(container: HTMLElement, labelH: number): Range {
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  const top = 12;
+  // The zoom / basemap controls sit at the top-right of the stage: the After
+  // label stays left of the ones in its own row (the zoom bar, or on phones
+  // the 44px basemap button), not of the wider switch further down.  Layout
+  // offsets, not rects: the stage may be mid-glide (a scale transform).
   let controlsW = 0;
   container.querySelectorAll<HTMLElement>(".leaflet-top.leaflet-right .leaflet-control").forEach((el) => {
-    controlsW = Math.max(controlsW, el.offsetWidth);
+    const y = el.offsetTop + ((el.offsetParent as HTMLElement | null)?.offsetTop ?? 0);
+    if (y < top + labelH + GAP) controlsW = Math.max(controlsW, el.offsetWidth);
   });
   return {
-    left,
-    right,
-    top: Math.max(12, lineTop + (ins.top !== null ? 0 : 12)),
-    lineTop,
-    lineBottom,
-    gripY: anyPanel ? (lineTop + lineBottom) / 2 - GRIP / 2 : cr.height * 0.72,
-    labelLeft: ins.left !== null ? left + GAP : 12,
-    labelRight: cr.width - right + GAP + controlsW + GAP,
+    left: 0,
+    right: w,
+    top,
+    lineTop: 0,
+    lineBottom: h,
+    gripY: h / 2 - GRIP / 2,
+    labelLeft: 12,
+    labelRight: 12 + controlsW + GAP,
   };
 }
 
@@ -141,7 +137,7 @@ export default function CompareDivider({
 
     // Everything that needs layout is measured in relayout() and cached, so
     // render() only writes (no forced reflow per map move / pointermove).
-    let range = measure(container);
+    let range = measure(container, beforeLabel.offsetHeight);
     let width = container.clientWidth;
     let containerLeft = container.getBoundingClientRect().left;
     let beforeW = 0;
@@ -175,7 +171,7 @@ export default function CompareDivider({
       afterLabel.dataset.off = String(frac >= 1 || x > afterLeft - GAP);
 
       // Phones: sit the (compact) labels just above the raster's top edge when
-      // the free strip has room, else at the top of the strip.
+      // the stage has room, else at the top of the stage.
       let top = range.top;
       if (phoneMq.matches && labelH > 0) {
         const nw = map.latLngToContainerPoint(L.latLngBounds(boundsRef.current as L.LatLngBoundsLiteral).getNorthWest());
@@ -189,13 +185,13 @@ export default function CompareDivider({
     };
 
     const relayout = () => {
-      range = measure(container);
-      width = container.clientWidth;
-      containerLeft = container.getBoundingClientRect().left;
-      // labels are positioned by render(); their width does not depend on it
+      // labels are positioned by render(); their size does not depend on it
       beforeW = beforeLabel.offsetWidth;
       afterW = afterLabel.offsetWidth;
       labelH = beforeLabel.offsetHeight;
+      range = measure(container, labelH);
+      width = container.clientWidth;
+      containerLeft = container.getBoundingClientRect().left;
       root.style.setProperty("--cmp-line-top", `${range.lineTop}px`);
       root.style.setProperty("--cmp-line-h", `${Math.max(0, range.lineBottom - range.lineTop)}px`);
       root.style.setProperty("--cmp-grip-y", `${range.gripY}px`);
@@ -207,7 +203,7 @@ export default function CompareDivider({
 
     relayout();
     map.on("move viewreset resize zoomend", render);
-    const stopObserving = observeLayout(container, relayout);
+    const stopObserving = observeSize(container, relayout);
     // one more pass once the pane elements and first layout exist
     const raf = requestAnimationFrame(relayout);
 

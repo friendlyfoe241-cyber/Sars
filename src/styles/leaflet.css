@@ -1,7 +1,7 @@
 /* Leaflet in the Vortex skin.  Leaflet's own stylesheet sits in the `leaflet`
    layer (index.css), below `components`, so plain selectors are enough.
-   The map is full-bleed; every control is placed from the measured free map
-   area (--vx-free-*, published by MapView), never from fixed offsets. */
+   The map lives in its own rounded stage (MapStage), so every control sits a
+   fixed 12px inside the stage edge. */
 
 .leaflet-container {
   background: transparent;
@@ -62,7 +62,7 @@
 }
 .leaflet-control-attribution {
   padding: 2px 10px;
-  border-radius: 12px 0 0 0;
+  border-radius: 12px;
   background: rgba(6, 8, 16, 0.78) !important;
   color: var(--vx-text-muted) !important;
   font: 400 11px/18px var(--vx-font-body);
@@ -80,15 +80,17 @@
   border-color: var(--vx-border);
 }
 
-/* placement: right edge of the free area, below the header; bottom controls
-   sit just above the dock / sheet */
+/* placement: inside the stage edge (clear of its rounded corners) */
 .leaflet-top.leaflet-right {
-  top: var(--vx-free-top);
-  right: var(--vx-free-right);
+  top: 12px;
+  right: 12px;
 }
 .leaflet-bottom.leaflet-right {
-  bottom: calc(var(--vx-free-bottom) - 12px);
-  right: 0;
+  bottom: 8px;
+  right: 18px;
+}
+.leaflet-bottom.leaflet-right .leaflet-control-scale {
+  margin-bottom: 4px;
 }
 .leaflet-right .leaflet-control {
   margin-right: 0;
@@ -109,15 +111,11 @@
 }
 
 @media (max-width: 767px) {
-  /* phones: the free map strip above the sheet is short.  Pinch zooms, so the
-     +/- buttons are dropped and the basemap switch is a single icon button at
-     the top-right corner of the strip (the After label sits to its left). */
+  /* phones: the map stage is short.  Pinch zooms, so the +/- buttons are
+     dropped and the basemap switch is a single icon button at the top-right
+     corner of the stage (the After label sits to its left). */
   .leaflet-control-zoom {
     display: none;
-  }
-  .leaflet-top.leaflet-right {
-    top: calc(var(--vx-free-top) + 4px);
-    right: calc(var(--vx-free-right) - 4px);
   }
 }
 
@@ -273,8 +271,8 @@
   display: none;
 }
 @media (max-width: 767px) {
-  /* compact one-line labels ("Before · 25 Oct"): little of the short free
-     strip or the raster is covered, and both fit either side of a centred
+  /* compact one-line labels ("Before · 25 Oct"): little of the short stage
+     or the raster is covered, and both fit either side of a centred
      divider */
   .vx-compare__label {
     max-width: 48%;

@@ -17,7 +17,11 @@ interface SearchPanelProps {
   onToggleDraw: () => void;
   /** frame the area of interest on the map again */
   onFit: () => void;
-  onSearchData: () => void;
+  /** the catalogue date range (empty: any date) */
+  dateFrom: string;
+  dateTo: string;
+  /** run the catalogue search for the area and this date range */
+  onSearchData: (from: string, to: string) => void;
   searching: boolean;
   exampleLabel: string | null;
   onExample: () => void;
@@ -34,6 +38,8 @@ export default function SearchPanel({
   drawMode,
   onToggleDraw,
   onFit,
+  dateFrom,
+  dateTo,
   onSearchData,
   searching,
   exampleLabel,
@@ -41,6 +47,8 @@ export default function SearchPanel({
 }: SearchPanelProps) {
   // Local to the panel: typing re-renders only this component.
   const [query, setQuery] = useState("");
+  const [from, setFrom] = useState(dateFrom);
+  const [to, setTo] = useState(dateTo);
   return (
     <>
       <Section title="Location">
@@ -151,15 +159,47 @@ export default function SearchPanel({
       </Section>
 
       <Section title="Catalogue search">
-        <button
-          type="button"
-          onClick={onSearchData}
-          disabled={!aoi || searching}
-          className="vx-button vx-button--primary vx-button--block"
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSearchData(from, to);
+          }}
         >
-          {searching ? <Spinner /> : <Search size={16} aria-hidden />}
-          {searching ? "Searching NISAR data…" : "Search NISAR data"}
-        </button>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="min-w-0">
+              <label htmlFor="vx-search-from" className="vx-label">
+                From (optional)
+              </label>
+              <input
+                id="vx-search-from"
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="vx-input vx-mono !px-2"
+              />
+            </div>
+            <div className="min-w-0">
+              <label htmlFor="vx-search-to" className="vx-label">
+                To (optional)
+              </label>
+              <input
+                id="vx-search-to"
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="vx-input vx-mono !px-2"
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={!aoi || searching}
+            className="vx-button vx-button--primary vx-button--block mt-3"
+          >
+            {searching ? <Spinner /> : <Search size={16} aria-hidden />}
+            {searching ? "Searching NISAR data…" : "Search NISAR data"}
+          </button>
+        </form>
         {!aoi && <p className="vx-note mt-2">Choose an area first.</p>}
       </Section>
     </>
