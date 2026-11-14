@@ -87,7 +87,7 @@
 }
 
 /* lg-dark: a dark scrim in place of the white tint, so text keeps >= 4.5:1
-   even when the glass sits over the bright Blue Marble basemap and the
+   even when the glass sits over the bright Earth imagery basemap and the
    cursor is far away (the clear state).  Used wherever there is text. */
 .lg-dark .lg-tint {
   background: rgba(6, 8, 16, calc(0.7 + 0.12 * var(--p)));

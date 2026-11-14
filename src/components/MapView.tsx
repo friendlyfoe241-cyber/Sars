@@ -63,10 +63,9 @@ interface MapViewProps {
 }
 
 // Basemaps.  Both are keyless raster sources that send CORS headers.
-//   Earth      NASA GIBS Blue Marble (default).  Native tiles stop at zoom 8;
-//              from zoom 9 Esri World Imagery is drawn on top, with Blue
-//              Marble left underneath as an upscaled fallback while those
-//              tiles load.  Dimmed for the dark theme by a
+//   Earth      Esri World Imagery (default).  On high-DPI screens it uses
+//              128 px tiles one zoom deeper so each tile is drawn at device
+//              resolution.  Dimmed for the dark theme by a
 //              CSS filter on its own pane only (see leaflet.css), so the radar
 //              overlay is never filtered.
 //   Reference  Esri World Dark Gray base plus its reference-label layer.
@@ -85,24 +84,18 @@ const BASEMAPS: Record<
     maxNativeZoom: number;
     attribution: string;
     labelsUrl?: string;
-    /** higher-resolution layer drawn on top from `minZoom` up; the base layer
-     *  stays underneath (upscaled) so nothing goes blank while it loads */
-    detail?: { url: string; minZoom: number; attribution: string };
+    /** on high-DPI screens draw half-size tiles one zoom deeper (sharp) */
+    hiDpi?: boolean;
   }
 > = {
   earth: {
     label: "Earth",
-    url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg",
-    maxNativeZoom: 8,
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    // global coverage to level 19 (deeper only in some areas)
+    maxNativeZoom: 19,
     attribution:
-      '<a href="https://earthdata.nasa.gov/gibs">NASA EOSDIS GIBS</a> &middot; Blue Marble',
-    // Blue Marble is ~500 m/px; past its native zoom switch to Esri imagery.
-    detail: {
-      url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      minZoom: 9,
-      attribution:
-        "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
-    },
+      "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+    hiDpi: true,
   },
   reference: {
     label: "Reference",
@@ -115,16 +108,6 @@ const BASEMAPS: Record<
 };
 
 const BASEMAP_IDS: BasemapId[] = ["earth", "reference"];
-
-/** A basemap's detail layer, mounted only at zoom >= minZoom so its tiles are
- *  never requested, and its attribution never shown, below that zoom. */
-function DetailTileLayer({ url, minZoom, attribution }: { url: string; minZoom: number; attribution: string }) {
-  const map = useMap();
-  const [zoom, setZoom] = useState(() => map.getZoom());
-  useMapEvent("zoomend", () => setZoom(map.getZoom()));
-  if (zoom < minZoom) return null;
-  return <TileLayer url={url} minZoom={minZoom} maxZoom={14} attribution={attribution} />;
-}
 
 /** Labelled Earth / Reference switch, placed under Leaflet's zoom buttons. */
 function BasemapControl({
@@ -492,6 +475,9 @@ function MapView({
   const drawGuard = useRef(0);
   const [basemapId, setBasemapId] = useState<BasemapId>("earth");
   const basemap = BASEMAPS[basemapId];
+  // Leaflet's detectRetina, done by hand: it would also lower the layer's
+  // maxZoom to 13 (blank at the map's zoom 14) and not adjust maxNativeZoom.
+  const hiDpi = !!basemap.hiDpi && L.Browser.retina;
 
   // Divider position (0..1 of the usable map width) is a ref owned here and
   // written by CompareDivider's DOM code: dragging never re-renders anything.
@@ -545,11 +531,12 @@ function MapView({
             >
               <TileLayer
                 url={basemap.url}
-                maxNativeZoom={basemap.maxNativeZoom}
+                maxNativeZoom={hiDpi ? basemap.maxNativeZoom - 1 : basemap.maxNativeZoom}
+                tileSize={hiDpi ? 128 : 256}
+                zoomOffset={hiDpi ? 1 : 0}
                 maxZoom={14}
                 attribution={basemap.attribution}
               />
-              {basemap.detail && <DetailTileLayer {...basemap.detail} />}
             </Pane>
             {basemap.labelsUrl && (
               <Pane key={`${basemapId}-labels`} name="orbLabels" style={{ zIndex: 450 }}>
