@@ -64,7 +64,9 @@ interface MapViewProps {
 
 // Basemaps.  Both are keyless raster sources that send CORS headers.
 //   Earth      NASA GIBS Blue Marble (default).  Native tiles stop at zoom 8;
-//              deeper map zooms upscale them.  Dimmed for the dark theme by a
+//              from zoom 9 Esri World Imagery is drawn on top, with Blue
+//              Marble left underneath as an upscaled fallback while those
+//              tiles load.  Dimmed for the dark theme by a
 //              CSS filter on its own pane only (see leaflet.css), so the radar
 //              overlay is never filtered.
 //   Reference  Esri World Dark Gray base plus its reference-label layer.
@@ -83,6 +85,9 @@ const BASEMAPS: Record<
     maxNativeZoom: number;
     attribution: string;
     labelsUrl?: string;
+    /** higher-resolution layer drawn on top from `minZoom` up; the base layer
+     *  stays underneath (upscaled) so nothing goes blank while it loads */
+    detail?: { url: string; minZoom: number; attribution: string };
   }
 > = {
   earth: {
@@ -91,6 +96,13 @@ const BASEMAPS: Record<
     maxNativeZoom: 8,
     attribution:
       '<a href="https://earthdata.nasa.gov/gibs">NASA EOSDIS GIBS</a> &middot; Blue Marble',
+    // Blue Marble is ~500 m/px; past its native zoom switch to Esri imagery.
+    detail: {
+      url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      minZoom: 9,
+      attribution:
+        "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+    },
   },
   reference: {
     label: "Reference",
@@ -103,6 +115,16 @@ const BASEMAPS: Record<
 };
 
 const BASEMAP_IDS: BasemapId[] = ["earth", "reference"];
+
+/** A basemap's detail layer, mounted only at zoom >= minZoom so its tiles are
+ *  never requested, and its attribution never shown, below that zoom. */
+function DetailTileLayer({ url, minZoom, attribution }: { url: string; minZoom: number; attribution: string }) {
+  const map = useMap();
+  const [zoom, setZoom] = useState(() => map.getZoom());
+  useMapEvent("zoomend", () => setZoom(map.getZoom()));
+  if (zoom < minZoom) return null;
+  return <TileLayer url={url} minZoom={minZoom} maxZoom={14} attribution={attribution} />;
+}
 
 /** Labelled Earth / Reference switch, placed under Leaflet's zoom buttons. */
 function BasemapControl({
@@ -527,6 +549,7 @@ function MapView({
                 maxZoom={14}
                 attribution={basemap.attribution}
               />
+              {basemap.detail && <DetailTileLayer {...basemap.detail} />}
             </Pane>
             {basemap.labelsUrl && (
               <Pane key={`${basemapId}-labels`} name="orbLabels" style={{ zIndex: 450 }}>
