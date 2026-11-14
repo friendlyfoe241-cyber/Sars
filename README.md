@@ -22,8 +22,10 @@ A React/TypeScript web application for global SAR surface-change monitoring usin
 project/
 ├── public/data/               # Prepared example dataset (Tonj wetlands, South Sudan)
 ├── src/
-│   ├── components/            # MapView, SearchPanel, ResultsPanel, ControlPanel, ObservationInfo
-│   ├── lib/                   # aoi, geocode, discovery, pairing, raster, changeDetection, data
+│   ├── components/            # MapView, MapLegend, TopBar, SearchPanel, CataloguePanel, ComparePanel, StatsPanel, ObservationPanel, StateNotice
+│   ├── lib/                   # aoi, geocode, discovery, pairing, raster, rasterSource, changeDetection, useChangeLayers, data
+│   ├── styles/                # ORBITAL tokens (orbital.css), shell grid, Leaflet theme
+│   ├── ui/                    # destinations, layout-mode hook
 │   └── App.tsx
 ├── api/                       # Vercel serverless function (Gemini integration)
 ├── scripts/                   # GCOV/quicklook preparation scripts & smoke tests

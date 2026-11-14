@@ -13,7 +13,7 @@ The quicklook PNGs are 8-bit renderings of the GCOV C11 (HHHH) / C22 (HVHV)
 layers produced by the NISAR ground system.  They are genuine NISAR
 observations, but they are *display renderings*, not calibrated backscatter:
 the unit of every value is "quicklook display DN" (0 = nodata).  The
-calibrated path (sigma0 in dB from the GCOV HDF5 files) is implemented
+calibrated path (gamma-0 backscatter in dB from the GCOV HDF5 files) is implemented
 separately in prepare_nisar_gcov.py and requires an Earthdata login.
 
 Usage:
@@ -145,8 +145,14 @@ def resample_to_window(img: np.ndarray, quad, window, out_w: int):
         det = dpdu[:, :, 0] * dpdv[:, :, 1] - dpdu[:, :, 1] * dpdv[:, :, 0]
         dx = LON - p[:, :, 0]
         dy = LAT - p[:, :, 1]
-        u = u + (dx * dpdv[:, :, 1] - dy * dpdv[:, :, 0]) / det
-        v = v + (dpdu[:, :, 0] * dy - dpdu[:, :, 1] * dx) / det
+        du = (dx * dpdv[:, :, 1] - dy * dpdv[:, :, 0]) / det
+        dv = (dpdu[:, :, 0] * dy - dpdu[:, :, 1] * dx) / det
+        u = u + du
+        v = v + dv
+        # Newton converges quadratically (2-4 steps for these near-affine
+        # quads); stop once the correction is far below one source pixel.
+        if max(np.abs(du).max(), np.abs(dv).max()) < 1e-12:
+            break
 
     px = u * (w_img - 1)
     py = (1 - v) * (h_img - 1)
@@ -271,9 +277,9 @@ def main() -> None:
             ),
             "limitations": [
                 "Displayed values are 8-bit quicklook renderings (display DN), not calibrated backscatter in dB.",
-                "The change layer is a difference of those display values; it preserves the sign of change under the shared quicklook rendering but its magnitude is not sigma0.",
+                "The change layer is a difference of those display values; it preserves the sign of change under the shared quicklook rendering but its magnitude is not calibrated backscatter.",
                 "Quicklook resolution is about %d m per pixel, coarser than the native GCOV posting." % round(pixel_size_m),
-                "Calibrated sigma0/dB rasters require the GCOV HDF5 products (Earthdata login); see scripts/prepare_nisar_gcov.py.",
+                "Calibrated gamma-0 backscatter rasters (dB) require the GCOV HDF5 products (Earthdata login); see scripts/prepare_nisar_gcov.py.",
             ],
         },
         "studyArea": {
@@ -306,8 +312,9 @@ def main() -> None:
             "nodata": 0,
             "description": (
                 "8-bit ASF browse quicklook rendering of the GCOV C11 (HH) / C22 (HV) "
-                "layers; monotonic with calibrated backscatter under the shared "
-                "quicklook rendering. 0 marks nodata / outside the observation footprint."
+                "layers; the scaling of the browse rendering is not documented, so DN "
+                "differences are display-brightness differences only. 0 marks nodata / "
+                "outside the observation footprint."
             ),
         },
         "changeScale": {

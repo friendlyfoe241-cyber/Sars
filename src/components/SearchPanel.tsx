@@ -1,12 +1,12 @@
-import { Section } from "./ui";
+import { useState } from "react";
+import { Crosshair, Maximize2, Search, SquareDashed } from "lucide-react";
+import { Section, Spinner } from "./ui";
 import { formatAoi, formatLatLon, type Aoi } from "../lib/aoi";
 
 export const AOI_SIZES_KM = [25, 50, 100, 200];
 
 interface SearchPanelProps {
-  query: string;
-  onQueryChange: (q: string) => void;
-  onLocationSearch: () => void;
+  onLocationSearch: (query: string) => void;
   searchingLocation: boolean;
   locationLabel: string;
   locationError: string | null;
@@ -15,6 +15,8 @@ interface SearchPanelProps {
   onAoiSizeChange: (km: number) => void;
   drawMode: boolean;
   onToggleDraw: () => void;
+  /** frame the area of interest on the map again */
+  onFit: () => void;
   onSearchData: () => void;
   searching: boolean;
   exampleLabel: string | null;
@@ -22,8 +24,6 @@ interface SearchPanelProps {
 }
 
 export default function SearchPanel({
-  query,
-  onQueryChange,
   onLocationSearch,
   searchingLocation,
   locationLabel,
@@ -33,83 +33,111 @@ export default function SearchPanel({
   onAoiSizeChange,
   drawMode,
   onToggleDraw,
+  onFit,
   onSearchData,
   searching,
   exampleLabel,
   onExample,
 }: SearchPanelProps) {
+  // Local to the panel: typing re-renders only this component.
+  const [query, setQuery] = useState("");
   return (
-    <div>
+    <>
       <Section title="Location">
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            onLocationSearch();
+            onLocationSearch(query);
           }}
-          className="flex gap-1.5"
+          className="vx-field"
         >
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Place name or lat, lon"
-            aria-label="Location search"
-            className="min-w-0 flex-1 rounded-[3px] border border-app-border bg-white px-2 py-1.5 text-[13px] text-app-text placeholder:text-app-muted focus:border-app-accent focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={searchingLocation || query.trim().length === 0}
-            className="rounded-[3px] border border-app-border bg-white px-2.5 py-1.5 text-[12px] text-app-text hover:bg-app-subtle disabled:opacity-60"
-          >
-            {searchingLocation ? "…" : "Go"}
-          </button>
+          <label htmlFor="vx-location" className="vx-label !mb-0">
+            Place name or coordinates
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="vx-location"
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Place name or lat, lon"
+              aria-label="Location search"
+              aria-invalid={locationError ? true : undefined}
+              aria-describedby="vx-location-hint"
+              className="vx-input"
+              autoComplete="off"
+            />
+            <button
+              type="submit"
+              disabled={searchingLocation || query.trim().length === 0}
+              className="vx-button w-12 shrink-0 !px-0"
+              aria-label={searchingLocation ? "Searching for location" : "Go to location"}
+            >
+              {searchingLocation ? <Spinner /> : <Search size={16} aria-hidden />}
+            </button>
+          </div>
         </form>
-        {locationError ? (
-          <p className="mt-1.5 text-[11px] text-app-muted">{locationError}</p>
-        ) : (
-          <p className="mt-1.5 text-[11px] leading-[1.5] text-app-muted">
-            {locationLabel ||
-              "Search a place, enter coordinates, click the map, or draw an area."}
-          </p>
-        )}
+        <p
+          id="vx-location-hint"
+          className={`vx-note mt-2 ${locationError ? "!text-vx-error" : ""}`}
+          role={locationError ? "alert" : undefined}
+        >
+          {locationError ||
+            locationLabel ||
+            "Search a place, enter coordinates, click the map, or draw an area."}
+        </p>
         {exampleLabel && (
           <button
             type="button"
-            onClick={onExample}
-            className="mt-1.5 text-[11px] text-app-accent underline decoration-app-border underline-offset-2 hover:decoration-app-accent"
+            onClick={() => {
+              setQuery(exampleLabel);
+              onExample();
+            }}
+            className="vx-button vx-button--ghost vx-button--compact mt-2 !h-auto !justify-start !px-2 !py-2 text-left"
           >
-            Example: {exampleLabel}
+            <Crosshair size={14} aria-hidden className="shrink-0" />
+            <span>Example: {exampleLabel}</span>
           </button>
         )}
       </Section>
 
       <Section title="Area of interest">
-        <div className="flex items-center gap-1.5">
-          <select
-            value={aoiSizeKm}
-            onChange={(e) => onAoiSizeChange(Number(e.target.value))}
-            aria-label="Area of interest size"
-            className="rounded-[3px] border border-app-border bg-white px-2 py-1.5 text-[12px] text-app-text focus:border-app-accent focus:outline-none"
-          >
-            {AOI_SIZES_KM.map((km) => (
-              <option key={km} value={km}>
-                {km} × {km} km
-              </option>
-            ))}
-          </select>
+        <div className="flex items-end gap-2">
+          <div className="w-[150px] shrink-0">
+            <label htmlFor="vx-aoi-size" className="vx-label">
+              Size
+            </label>
+            <select
+              id="vx-aoi-size"
+              value={aoiSizeKm}
+              onChange={(e) => onAoiSizeChange(Number(e.target.value))}
+              aria-label="Area of interest size"
+              className="vx-input vx-select"
+            >
+              {AOI_SIZES_KM.map((km) => (
+                <option key={km} value={km}>
+                  {km} × {km} km
+                </option>
+              ))}
+            </select>
+          </div>
           <button
             type="button"
             onClick={onToggleDraw}
-            className={`flex-1 rounded-[3px] border px-2 py-1.5 text-[12px] ${
-              drawMode
-                ? "border-app-accent bg-app-accent text-white"
-                : "border-app-border bg-white text-app-text hover:bg-app-subtle"
-            }`}
+            aria-pressed={drawMode}
+            className="vx-button min-w-0 flex-1 !px-2"
           >
-            {drawMode ? "Drawing… (click to cancel)" : "Draw AOI"}
+            <SquareDashed size={16} aria-hidden />
+            {drawMode ? "Cancel drawing" : "Draw AOI"}
           </button>
         </div>
-        <p className="mt-1.5 text-[11px] leading-[1.5] text-app-muted">
+        {aoi && (
+          <button type="button" onClick={onFit} className="vx-button vx-button--block mt-2">
+            <Maximize2 size={16} aria-hidden />
+            Fit map to area
+          </button>
+        )}
+        <p className="vx-note vx-mono mt-2">
           {aoi ? (
             <>
               {formatAoi(aoi)}
@@ -127,11 +155,13 @@ export default function SearchPanel({
           type="button"
           onClick={onSearchData}
           disabled={!aoi || searching}
-          className="w-full rounded-[3px] border border-app-accent bg-app-accent px-3 py-2 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-60"
+          className="vx-button vx-button--primary vx-button--block"
         >
+          {searching ? <Spinner /> : <Search size={16} aria-hidden />}
           {searching ? "Searching NISAR data…" : "Search NISAR data"}
         </button>
+        {!aoi && <p className="vx-note mt-2">Choose an area first.</p>}
       </Section>
-    </div>
+    </>
   );
 }

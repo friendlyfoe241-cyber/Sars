@@ -1,0 +1,154 @@
+/* ------------------------------------------------------------------ */
+/* Vortex liquid glass                                                 */
+/* --p (0-1) is driven per element by useGlassProximity:               */
+/*   0   = no cursor nearby  -> clear, rippling liquid                 */
+/*   .45 = cursor within ~170 px -> partly frosted                     */
+/*   1   = cursor on it      -> fully frosted glass                    */
+/*                                                                     */
+/* Imported into the `components` layer so Tailwind utilities (absolute,*/
+/* fixed ...) can still set `position` on a .lg element.               */
+/* ------------------------------------------------------------------ */
+:root {
+  --lg-t0: 0.02;
+  --lg-tf: 0.14;
+  --lg-b0: 4px;
+  --lg-bf: 26px;
+}
+
+.lg {
+  --p: 0;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.lg-liq,
+.lg-solid,
+.lg-tint,
+.lg-rim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.lg-liq {
+  backdrop-filter: blur(var(--lg-b0)) saturate(150%);
+  -webkit-backdrop-filter: blur(var(--lg-b0)) saturate(150%);
+  filter: url(#lgDistort);
+  opacity: calc(1 - var(--p));
+}
+.lg-solid {
+  backdrop-filter: blur(var(--lg-bf)) saturate(190%) brightness(1.08);
+  -webkit-backdrop-filter: blur(var(--lg-bf)) saturate(190%) brightness(1.08);
+  opacity: var(--p);
+}
+.lg-tint {
+  background: rgba(
+    255,
+    255,
+    255,
+    calc(var(--lg-t0) + (var(--lg-tf) - var(--lg-t0)) * var(--p))
+  );
+}
+.lg-rim {
+  overflow: hidden;
+  opacity: calc(0.45 + 0.55 * var(--p));
+  box-shadow:
+    inset 1.5px 1.5px 0 rgba(255, 255, 255, 0.42),
+    inset -1px -1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 28px rgba(255, 255, 255, 0.05);
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.15) 0%,
+    rgba(255, 255, 255, 0.03) 24%,
+    transparent 55%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+}
+.lg-rim::after {
+  content: "";
+  position: absolute;
+  inset: -60%;
+  background: linear-gradient(
+    115deg,
+    transparent 44%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 56%
+  );
+  animation: lg-sheen 11s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+}
+.lg-c {
+  --p: 0; /* content never reads --p: stop proximity updates restyling it */
+  position: relative;
+  z-index: 1;
+}
+
+/* lg-dark: a dark scrim in place of the white tint, so text keeps >= 4.5:1
+   even when the glass sits over the bright Blue Marble basemap and the
+   cursor is far away (the clear state).  Used wherever there is text. */
+.lg-dark .lg-tint {
+  background: rgba(6, 8, 16, calc(0.7 + 0.12 * var(--p)));
+}
+/* The dark surface (header) is a permanent fixture: no animated displacement
+   filter and no endless sheen, so it never repaints on its own. */
+.lg-dark .lg-liq {
+  filter: none;
+}
+.lg-dark .lg-rim::after {
+  display: none;
+}
+
+/* lg-panel: large reading surfaces (sidebar, dock, legend, map controls).
+   No SVG displacement filter and a single plain backdrop blur: a displaced,
+   animated backdrop over the live map makes panning janky on big areas. */
+.lg-panel .lg-liq {
+  filter: none;
+  opacity: 1;
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+}
+.lg-panel .lg-solid {
+  display: none;
+}
+.lg-panel .lg-tint {
+  background: rgba(6, 8, 16, calc(0.78 + 0.1 * var(--p)));
+}
+.lg-panel .lg-rim::after {
+  display: none;
+}
+
+.lg-btn {
+  cursor: pointer;
+  transition:
+    background 0.25s ease,
+    color 0.25s ease,
+    transform var(--vx-dur) var(--vx-ease);
+}
+.lg-btn:active {
+  transform: scale(0.96);
+}
+.lg-btn[aria-disabled="true"] {
+  opacity: 0.5;
+}
+
+@media (prefers-contrast: more) {
+  .lg-liq,
+  .lg-solid {
+    display: none;
+  }
+  .lg-tint,
+  .lg-dark .lg-tint,
+  .lg-panel .lg-tint {
+    background: rgba(6, 8, 16, 0.96);
+  }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .lg-tint,
+  .lg-dark .lg-tint,
+  .lg-panel .lg-tint {
+    background: rgba(6, 8, 16, 0.94);
+  }
+}

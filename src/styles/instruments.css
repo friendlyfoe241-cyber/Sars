@@ -1,0 +1,328 @@
+/* Instrument dock: observations table, results table and the temporal graph.
+ * Desktop / tablet: a glass dock along the bottom of the free map area, to the
+ * right of the sidebar, collapsible to a slim bar.  Phones: the same content
+ * lives inside the Change / Explain steps of the sidebar (variant "inline").
+ * Tables scroll inside their own labelled containers; the page never does. */
+
+.vx-bottom {
+  position: fixed;
+  z-index: 900;
+  bottom: 16px;
+  right: 16px;
+  left: var(--vx-dock-left, 16px);
+  height: clamp(220px, 38vh, 320px);
+  min-width: 0;
+  display: block;
+}
+.vx-bottom[data-open="false"] {
+  height: 60px;
+}
+.vx-bottom > .lg {
+  height: 100%;
+  border-radius: 28px;
+}
+.vx-bottom > .lg > .lg-c {
+  height: 100%;
+}
+.vx-instr {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.vx-instr--inline {
+  height: auto;
+}
+.vx-instr__head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 60px;
+  padding: 8px 10px 8px 14px;
+}
+.vx-instr--inline .vx-instr__head {
+  min-height: 0;
+  padding: 4px 0 8px;
+}
+.vx-instr__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  border-top: 1px solid var(--vx-border);
+}
+.vx-instr__tabbody {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  outline: none;
+}
+.vx-instr__tabbody:focus-visible {
+  outline: 2px solid var(--vx-focus);
+  outline-offset: -2px;
+}
+.vx-instr__collapse {
+  flex: none;
+  padding-inline: 14px;
+}
+.vx-instr__tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+.vx-instr__tab {
+  flex: none;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--vx-text-muted);
+  font: 500 13px/1 var(--vx-font-display);
+  cursor: pointer;
+}
+.vx-instr__tab:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--vx-text);
+}
+.vx-instr__tab[aria-selected="true"] {
+  background: linear-gradient(135deg, #4f46e5, #6d4ce0);
+  color: var(--vx-on-accent);
+  box-shadow: inset 1px 1.5px 0 rgba(255, 255, 255, 0.4);
+}
+.vx-instr__summary {
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vx-text-muted);
+  font-size: 12px;
+}
+.vx-instr--inline .vx-instr__body {
+  border-top: 0;
+}
+.vx-instr--inline .vx-instr-scroll {
+  max-height: 340px;
+}
+.vx-instr--inline .vx-graph__plot {
+  flex: none;
+  height: 240px;
+}
+
+/* ---- tables --------------------------------------------------------------- */
+.vx-instr-scroll {
+  /* containing block for the absolutely positioned .sr-only text inside the
+     table cells: without it they escape this scroller and widen the page */
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--vx-control-border) transparent;
+}
+.vx-instr-scroll:focus-visible { outline: 2px solid var(--vx-focus); outline-offset: -2px; }
+.vx-itable { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 18px; }
+.vx-itable caption {
+  padding: 2px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  color: var(--vx-text-muted);
+  font: 400 11px/16px var(--vx-font-mono);
+}
+.vx-itable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 12px;
+  background: rgb(14 16 28);
+  border-bottom: 1px solid var(--vx-border);
+  color: var(--vx-text-muted);
+  font: 500 11px/16px var(--vx-font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+}
+.vx-itable td,
+.vx-itable tbody th {
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--vx-border);
+  text-align: left;
+  vertical-align: middle;
+  font-weight: 400;
+}
+.vx-itable tbody tr:hover { background: color-mix(in srgb, var(--vx-surface-raised) 70%, transparent); }
+.vx-itable tr[data-role] { background: color-mix(in srgb, var(--vx-surface-raised) 55%, transparent); }
+.vx-itable tr[data-selected] > :first-child { box-shadow: inset 3px 0 0 var(--vx-accent); }
+.vx-itable__narrow { width: 48px; padding-left: 4px !important; padding-right: 0 !important; }
+.vx-itable__time,
+.vx-itable__mono,
+.vx-itable .vx-itable__num {
+  font-family: var(--vx-font-mono) !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.vx-itable thead .vx-itable__num,
+.vx-itable .vx-itable__num { text-align: right; }
+.vx-itable thead .vx-itable__num { font-family: var(--vx-font-mono); }
+.vx-itable__name { display: block; font-weight: 500; }
+.vx-itable__note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vx-itable__trunc { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vx-itable__warn { color: var(--vx-warning); }
+.vx-itable__icon { min-width: 28px !important; padding: 0 !important; }
+.vx-itable__link--first { margin: 0 12px 0 0; }
+.vx-itable--obs { table-layout: fixed; }
+.vx-itable--obs :is(th, td) { overflow: hidden; }
+.vx-col-expand { width: 48px; }
+.vx-col-when { width: 96px; }
+.vx-col-channels { width: 72px; }
+.vx-col-maturity { width: 100px; }
+.vx-col-role { width: 190px; }
+.vx-itable--obs .vx-itable__time { font-size: 12px; line-height: 15px; }
+.vx-itable--obs :is(th, td) { padding-inline: 8px; }
+.vx-itable--obs .vx-itable__narrow { padding: 0 2px !important; }
+.vx-itable--obs .vx-button--compact { padding: 0 10px; font-size: 12px; }
+.vx-itable--obs .vx-itable__actions { gap: 3px; }
+.vx-itable--results { table-layout: auto; }
+.vx-itable--results tbody th { max-width: 0; width: 100%; }
+.vx-itable--results tbody th, .vx-itable--results td { padding-block: 3px; }
+.vx-itable--results .vx-itable__num { width: 1%; white-space: nowrap; }
+.vx-itable--results .vx-itable__sub { line-height: 14px; }
+.vx-itable__place {
+  display: block;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vx-itable__sub {
+  display: block;
+  color: var(--vx-text-muted);
+  font: 400 11px/16px var(--vx-font-mono);
+  white-space: nowrap;
+}
+.vx-itable__actions { display: inline-flex; gap: 4px; }
+.vx-itable__actions .vx-button { min-width: 44px; }
+.vx-itable__sort,
+.vx-itable__expand,
+.vx-itable__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.vx-itable__sort { min-height: 44px; padding: 0 4px; margin: 0 -4px; }
+.vx-itable__sort:hover { color: var(--vx-text); }
+.vx-itable__expand { width: 44px; height: 44px; justify-content: center; color: var(--vx-text-muted); }
+.vx-itable__expand:hover { color: var(--vx-text); background: var(--vx-surface-hover); }
+.vx-itable__link {
+  margin-left: 8px;
+  color: var(--vx-text);
+  text-decoration: underline;
+  text-decoration-color: var(--vx-control-border);
+  text-underline-offset: 3px;
+  font: 400 11px/16px var(--vx-font-mono);
+  min-height: 44px;
+}
+.vx-itable__detail td { background: color-mix(in srgb, var(--vx-surface-raised) 45%, transparent); }
+.vx-itable__detail dl { display: grid; gap: 4px 16px; margin: 0; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.vx-itable__detail dt { color: var(--vx-text-muted); font: 500 11px/16px var(--vx-font-mono); text-transform: uppercase; letter-spacing: 0.06em; }
+.vx-itable__detail dd {
+  margin: 0;
+  font: 400 12px/18px var(--vx-font-mono);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.vx-instr-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex: 1;
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+  color: var(--vx-text-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.vx-instr-foot {
+  margin: 0;
+  padding: 6px 12px;
+  border-top: 1px solid var(--vx-border);
+  color: var(--vx-text-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* ---- graph ----------------------------------------------------------------- */
+.vx-graph { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.vx-graph__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 6px 12px 0; flex: none; }
+.vx-graph__seg { flex: none; padding: 2px; gap: 2px; flex-wrap: nowrap; }
+.vx-graph__seg .vx-segment { flex: 0 0 auto; padding-inline: 10px; }
+.vx-graph__seg .vx-segment { white-space: nowrap; padding: 2px 12px; font-size: 12px; }
+.vx-graph__ctx { flex: 1 1 0; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vx-text-muted); font: 400 11px/16px var(--vx-font-mono); }
+.vx-graph__plot { position: relative; flex: 1 1 auto; min-height: 96px; display: flex; overflow: hidden; }
+.vx-graph__plot > svg { display: block; }
+.vx-graph__caption { flex: none; margin: 0; padding: 0 12px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vx-text-muted); font-size: 11px; line-height: 15px; }
+.vx-tip {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  gap: 1px;
+  max-width: 260px;
+  padding: 6px 8px;
+  background: rgb(22 24 38);
+  border: 1px solid var(--vx-control-border);
+  box-shadow: var(--vx-shadow);
+  font: 400 11px/16px var(--vx-font-mono);
+  pointer-events: none;
+}
+.vx-tip strong { font-weight: 500; }
+.vx-grid { stroke: rgb(245 247 250 / 11%); stroke-width: 1; }
+.vx-grid--v { stroke-dasharray: 2 4; }
+.vx-axisline { stroke: rgb(245 247 250 / 38%); stroke-width: 1; }
+.vx-axis { fill: var(--vx-text-muted); font: 400 11px var(--vx-font-mono); }
+.vx-axis--title { font-family: var(--vx-font-body); }
+.vx-axis--role { fill: var(--vx-text); font-weight: 500; font-family: var(--vx-font-body); }
+.vx-mark { outline: none; }
+.vx-mark__hit { fill: transparent; stroke: none; }
+.vx-mark:hover > .vx-mark__hit { fill: rgb(255 255 255 / 4%); }
+.vx-mark:focus-visible > .vx-mark__hit { stroke: var(--vx-focus); stroke-width: 2; }
+/* Put .sr-only on a wrapper, never on a <table>: a table ignores width:1px and
+   stays as wide as its content, widening the page's scrollable area. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+
+@media (max-width: 767px) {
+  /* the table scrolls sideways inside its labelled region, never the page */
+  .vx-itable--obs { min-width: 560px; }
+}
+.vx-instr--inline #instrument-results .vx-instr-scroll { max-height: none; }
+.vx-instr--inline .vx-itable__note { white-space: normal; }

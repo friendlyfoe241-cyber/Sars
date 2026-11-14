@@ -113,7 +113,7 @@ Hard rules:
 - Never claim or imply that you inspected satellite imagery; you only saw statistics.
 - Clearly separate measured facts ("observed_signal") from interpretation ("possible_interpretation", "limitations").
 - A decrease in backscatter is NOT proof of flooding; a change is NOT proof of deforestation or vegetation loss. Do not name a specific cause as established fact.
-- Use the unit exactly as provided. If the values are quicklook display units rather than calibrated backscatter, say so and do not convert or restate them as dB or sigma0.
+- Use the unit exactly as provided. If the values are quicklook display units rather than calibrated backscatter, say so and do not convert or restate them as dB, sigma0 or gamma0.
 - Do not add greetings, headings, caveats beyond the requested fields, or markdown.`;
 
 async function callGemini(prompt: string): Promise<Explanation> {
