@@ -129,7 +129,7 @@
 /* basemap: dimmed on its own pane only; the radar overlay pane is never
    filtered.  Earth reads as dusk rather than a bright atlas. */
 .leaflet-pane.vx-pane-basemap--earth {
-  filter: brightness(0.7) saturate(0.9);
+  filter: brightness(0.8) saturate(0.9);
 }
 .leaflet-pane.vx-pane-basemap--reference {
   filter: brightness(0.92);
