@@ -18,7 +18,7 @@ import type { NisarScene } from "../lib/discovery";
 import type { ViewerDataset } from "../lib/data";
 import type { DisplayLayer, DisplayMode, LayerUrls } from "../lib/useChangeLayers";
 import { formatDate } from "../lib/data";
-import { coveredInsets, observeLayout } from "../lib/freeArea";
+import { FIT_PADDING, observeSize } from "../lib/freeArea";
 import MapLegend from "./MapLegend";
 import CompareDivider from "./CompareDivider";
 import { Spinner } from "./ui";
@@ -32,8 +32,8 @@ interface MapViewProps {
   drawMode: boolean;
   onAoiDrawn: (aoi: Aoi) => void;
   onPickLocation: (lat: number, lon: number) => void;
-  /** the user started dragging the map (tucks a peeking panel) */
-  onUserInteract?: () => void;
+  /** a map click picks a location only where that makes sense (Locate) */
+  pickEnabled: boolean;
   display: DisplayMode;
   pol: string;
   /** change colour-scale saturation of `pol`; the legend describes this value */
@@ -51,14 +51,12 @@ interface MapViewProps {
   viewer: ViewerDataset | null;
   /** bump to re-fit the map to the AOI */
   fitKey: number;
-  /** changes when a panel opens or closes (see FitController) */
-  layoutKey: string;
   /** before / after scene ids of the loaded pair (footprints kept visible) */
   roleBefore: string | null;
   roleAfter: string | null;
   /** with a pair loaded: also draw the non-selected catalogue footprints */
   showAllFootprints: boolean;
-  /** draw the legend over the map (false: the sidebar shows it, on phones) */
+  /** draw the legend over the map (false: the page shows it inline) */
   showLegend?: boolean;
   /** limit drawn footprints for performance */
   maxFootprints?: number;
@@ -129,8 +127,8 @@ function BasemapControl({
       control.remove();
     };
   }, [map, container]);
-  // Phones: the free map strip is short, so the switch collapses to a single
-  // 44px icon button that flips between the two basemaps.
+  // Phones: the map stage is short, so the switch collapses to a single 44px
+  // icon button that flips between the two basemaps.
   const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 767px)").matches);
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -185,63 +183,17 @@ function boundsOf(aoi: Aoi): L.LatLngBoundsExpression {
   ];
 }
 
-const FIT_GAP = 16;
-
 /**
- * Publishes the free map area (what no glass surface covers) as --vx-free-*
- * custom properties on the .vx-map wrapper: the legend and the zoom /
- * basemap controls position themselves from them.  A side nothing covers
- * has no property, so the :root default (12px) applies.  Also keeps Leaflet's
- * size in step (it does not watch its container), which covers a map that
- * was laid out while the hero was up.
- */
-function FreeAreaVars() {
-  const map = useMap();
-  useEffect(() => {
-    const container = map.getContainer();
-    const host = container.parentElement;
-    if (!host) return;
-    const write = () => {
-      // the map may have been laid out while hidden or resized by a panel
-      map.invalidateSize({ pan: false });
-      const m = coveredInsets(container, FIT_GAP);
-      for (const side of ["left", "right", "top", "bottom"] as const) {
-        const v = m[side];
-        if (v === null) host.style.removeProperty(`--vx-free-${side}`);
-        else host.style.setProperty(`--vx-free-${side}`, `${Math.round(v)}px`);
-      }
-    };
-    write();
-    const stop = observeLayout(container, write);
-    const raf = requestAnimationFrame(write); // after the first layout
-    return () => {
-      cancelAnimationFrame(raf);
-      stop();
-      for (const side of ["left", "right", "top", "bottom"]) host.style.removeProperty(`--vx-free-${side}`);
-    };
-  }, [map]);
-  return null;
-}
-
-/**
- * Fit the AOI into the real free area of the map: the padding on every side
- * comes from the measured rects of the panels that are open now (the CSS
- * --vx-fit-* variables are the fallback where nothing covers a side).
+ * Fit the AOI into the map stage (a small constant padding inside it), and
+ * keep Leaflet's size in step with the stage: Leaflet does not watch its
+ * container, and the stage changes box when the step page changes.
  *
  *  - `fitKey` (new AOI, Fit button): always fits.
- *  - `layoutKey` (a panel opened / closed): refits only if the user has not
- *    moved the map since the last automatic fit, so a manual pan or zoom is
- *    never thrown away.
+ *  - the stage changed size: the map keeps its centre and refits only if
+ *    the user has not moved it since the last automatic fit, so a manual pan
+ *    or zoom is never thrown away.
  */
-function FitController({
-  aoi,
-  fitKey,
-  layoutKey,
-}: {
-  aoi: Aoi | null;
-  fitKey: number;
-  layoutKey: string;
-}) {
+function FitController({ aoi, fitKey }: { aoi: Aoi | null; fitKey: number }) {
   const map = useMap();
   const aoiRef = useRef(aoi);
   aoiRef.current = aoi;
@@ -253,9 +205,6 @@ function FitController({
   fit.current = () => {
     const target = aoiRef.current;
     if (!target) return;
-    const container = map.getContainer();
-    map.invalidateSize({ pan: false });
-    const m = coveredInsets(container, FIT_GAP);
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     programmatic.current = true;
     window.clearTimeout(guardTimer.current);
@@ -265,8 +214,7 @@ function FitController({
     }, 900);
     userMoved.current = false;
     map.fitBounds(boundsOf(target), {
-      paddingTopLeft: [m.left ?? FIT_GAP, m.top ?? FIT_GAP],
-      paddingBottomRight: [m.right ?? FIT_GAP, m.bottom ?? FIT_GAP],
+      padding: [FIT_PADDING, FIT_PADDING],
       maxZoom: 10,
       animate: !reduceMotion,
       duration: 0.45,
@@ -290,19 +238,27 @@ function FitController({
     };
   }, [map]);
 
+  // The stage changed box (rAF-coalesced): resize Leaflet, keeping its centre.
   useEffect(() => {
-    if (aoi) fit.current();
+    const container = map.getContainer();
+    let w = container.clientWidth;
+    let h = container.clientHeight;
+    return observeSize(container, () => {
+      const nw = container.clientWidth;
+      const nh = container.clientHeight;
+      if (nw === w && nh === h) return;
+      w = nw;
+      h = nh;
+      map.invalidateSize();
+      if (!userMoved.current && nw > 0 && nh > 0) fit.current();
+    });
+  }, [map]);
+
+  useEffect(() => {
+    map.invalidateSize();
+    if (aoiRef.current) fit.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitKey]);
-
-  const firstLayout = useRef(true);
-  useEffect(() => {
-    if (firstLayout.current) {
-      firstLayout.current = false;
-      return;
-    }
-    if (!userMoved.current) fit.current();
-  }, [layoutKey]);
   return null;
 }
 
@@ -321,12 +277,6 @@ function ClickHandler({
     if (!enabled || Date.now() < drawGuard.current) return;
     onPick(e.latlng.lat, e.latlng.lng);
   });
-  return null;
-}
-
-/** Reports a map drag the user started (a click is reported as a pick). */
-function InteractionWatcher({ onInteract }: { onInteract?: () => void }) {
-  useMapEvent("dragstart", () => onInteract?.());
   return null;
 }
 
@@ -483,7 +433,7 @@ function MapView({
   drawMode,
   onAoiDrawn,
   onPickLocation,
-  onUserInteract,
+  pickEnabled,
   display,
   pol,
   saturation,
@@ -494,7 +444,6 @@ function MapView({
   overlayBounds,
   viewer,
   fitKey,
-  layoutKey,
   roleBefore,
   roleAfter,
   showAllFootprints,
@@ -623,12 +572,10 @@ function MapView({
 
         {aoiBounds && <Rectangle bounds={aoiBounds} pathOptions={AOI_STYLE} />}
 
-        <ClickHandler enabled={!drawMode} onPick={onPickLocation} drawGuard={drawGuard} />
-        <InteractionWatcher onInteract={onUserInteract} />
+        <ClickHandler enabled={pickEnabled && !drawMode} onPick={onPickLocation} drawGuard={drawGuard} />
         <AoiDrawer enabled={drawMode} onAoiDrawn={onAoiDrawn} drawGuard={drawGuard} />
-        <FitController aoi={aoi} fitKey={fitKey} layoutKey={layoutKey} />
+        <FitController aoi={aoi} fitKey={fitKey} />
         <ScaleBar />
-        <FreeAreaVars />
         {!CUSTOM_BASEMAP_URL && <BasemapControl value={basemapId} onChange={setBasemapId} />}
       </MapContainer>
       {compare && viewer && !compareReady && rendering && (

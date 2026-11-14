@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, PanelLeftClose, Pin, PinOff } from "lucide-react";
+import { ChevronRight, Maximize2, Minimize2 } from "lucide-react";
 import { isAbortError } from "./lib/abort";
-import CataloguePanel from "./components/CataloguePanel";
+import { DateFilter, ManualPair, PairSummary, SuggestedPairs } from "./components/Catalogue";
 import ComparePanel from "./components/ComparePanel";
-import InstrumentDock, { type InstrumentTab } from "./components/InstrumentDock";
+import MapStage from "./components/MapStage";
 import MapView from "./components/MapView";
 import ObservationsTable from "./components/ObservationsTable";
 import ResultsTable from "./components/ResultsTable";
 import TemporalGraph, { type GraphView } from "./components/TemporalGraph";
-import ObservationPanel from "./components/ObservationPanel";
+import ObservationPanel, { SceneDetails } from "./components/ObservationPanel";
+import Panel from "./components/Panel";
 import SearchPanel from "./components/SearchPanel";
 import StateNotice from "./components/StateNotice";
 import StatsPanel, { type AiExplanation, type AiState } from "./components/StatsPanel";
@@ -21,8 +22,7 @@ import StepIcon from "./components/StepIcon";
 import Starfield from "./components/Starfield";
 import { DisclosureSection } from "./components/ui";
 import { useGlassProximity } from "./hooks/useGlassProximity";
-import { usePresence } from "./hooks/usePresence";
-import { LAYOUT_EVENT } from "./lib/freeArea";
+import { MOTION_MS, prefersReducedMotion, usePresence } from "./hooks/usePresence";
 import { STEPS, type StepId } from "./lib/steps";
 import { usePairStats } from "./lib/usePairStats";
 import {
@@ -43,7 +43,6 @@ import {
   type ViewerDataset,
 } from "./lib/data";
 import { searchNisarGcov, type NisarScene } from "./lib/discovery";
-import { formatSigned } from "./lib/format";
 import { geocodePlace } from "./lib/geocode";
 import { findCompatiblePairs, type ScenePair } from "./lib/pairing";
 import {
@@ -73,21 +72,16 @@ import {
 } from "./lib/viewState";
 
 const IDLE_AI: AiState = { status: "idle" };
-const PIN_KEY = "vx.panelPinned";
-function readPinned(): boolean {
-  try {
-    return window.localStorage.getItem(PIN_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-function writePinned(on: boolean) {
-  try {
-    window.localStorage.setItem(PIN_KEY, on ? "1" : "0");
-  } catch {
-    /* storage unavailable: the choice lasts for this visit only */
-  }
-}
+/** which way the step pages slide: by step order */
+type SwapDir = "next" | "prev";
+const STEP_IDS = STEPS.map((x) => x.id);
+const NEXT_STEP: Record<StepId, StepId | null> = {
+  locate: "scenes",
+  scenes: "pairs",
+  pairs: "change",
+  change: "explain",
+  explain: null,
+};
 const METADATA_ONLY_MESSAGE =
   "Quicklook rasters for this pair are not available. Scene metadata is shown instead of a comparison.";
 
@@ -133,34 +127,17 @@ export default function App() {
   const stepRef = useRef<StepId>("locate");
   // the step auto-advance last put the user on (null once they navigate away)
   const autoRef = useRef<StepId | null>(null);
-  const [vw, setVw] = useState({ w: window.innerWidth, h: window.innerHeight });
-  const [headerBottom, setHeaderBottom] = useState(88);
-  const headerRef = useRef<HTMLDivElement>(null);
-  const phone = vw.w < 768;
-  // Step panel.  Tucked into a slim edge tab by default; it comes back as a
-  // "peek" overlay (edge tab, step rail, hero, auto-advance, a state that
-  // needs attention) that tucks again on map interaction or Escape, or stays
-  // put while pinned.  Only a pinned panel takes room from the map.  Phones
-  // have no pin: the bottom sheet is collapsed to its header bar or peeking.
-  const [pinned, setPinned] = useState(readPinned);
-  const [peek, setPeek] = useState(false);
-  const isPinned = pinned && !phone;
-  const panelOpen = isPinned || peek;
-  const panel = usePresence(panelOpen);
-  // direction of the content slide when the step changes inside an open panel
-  const [swapDir, setSwapDir] = useState<"next" | "prev" | null>(null);
-  // a request to focus the step heading (user-opened) or the opener (tucked)
-  const [focusReq, setFocusReq] = useState<{ n: number; to: "heading" | "opener" }>({ n: 0, to: "heading" });
-  const openerRef = useRef<HTMLElement | null>(null);
-  const panelOpenRef = useRef(panelOpen);
-  panelOpenRef.current = panelOpen;
-  const peekOnlyRef = useRef(false);
-  peekOnlyRef.current = panelOpen && !isPinned;
-  // Instrument dock (observations / results / graph): a glass bar along the
-  // bottom of the free map area, collapsed to its tab bar until the user
-  // opens it (loading a pair does not open it).
-  const [instrChoice, setInstrChoice] = useState<boolean | null>(null);
-  const [instrTab, setInstrTab] = useState<InstrumentTab>("observations");
+  // Step pages: the incoming page slides in from the side its step lies on
+  // (by step order); the outgoing one stays mounted for one motion duration
+  // to slide out the other way.
+  const [enterDir, setEnterDir] = useState<SwapDir>("next");
+  const [leavingPage, setLeavingPage] = useState<{ id: StepId; dir: SwapDir } | null>(null);
+  // a request to focus the current page heading (every step change)
+  const [focusReq, setFocusReq] = useState(0);
+  const [vw, setVw] = useState(() => window.innerWidth);
+  const phone = vw < 768;
+  // phones: the map stage can take the whole page, and back
+  const [mapExpanded, setMapExpanded] = useState(false);
   const [graphView, setGraphView] = useState<GraphView>("date");
   // With a pair loaded only its own footprints are drawn unless restored.
   const [showAllFootprints, setShowAllFootprints] = useState(false);
@@ -291,7 +268,6 @@ export default function App() {
     ],
   );
   const pairLoaded = viewState.kind === "ready" || viewState.kind === "no-valid-pixels";
-  const instrOpen = instrChoice ?? false;
   const ai: AiState =
     aiEntry && aiEntry.key === currentSelectionKey ? aiEntry.state : IDLE_AI;
 
@@ -418,14 +394,10 @@ export default function App() {
     }
   }, [applyLocation]);
 
-  // A map click while a peek is open only tucks the peek: it is consumed and
-  // never also moves the area of interest.
+  // A map click moves the area of interest on the Locate page only (MapView
+  // ignores clicks elsewhere).
   const handlePickLocation = useCallback(
     (lat: number, lon: number) => {
-      if (peekOnlyRef.current) {
-        setPeek(false);
-        return;
-      }
       setDrawMode(false);
       applyLocation(lat, lon, `Pinned location · ${formatLatLon(lat, lon)}`);
     },
@@ -678,22 +650,6 @@ export default function App() {
 
   const handleToggleDraw = useCallback(() => setDrawMode((d) => !d), []);
   const handleFit = useCallback(() => setFitKey((k) => k + 1), []);
-  const handleToggleInstruments = useCallback(() => {
-    setInstrChoice(!instrOpen);
-  }, [instrOpen]);
-  const handleOpenInstrument = useCallback((tab: InstrumentTab) => {
-    setInstrTab(tab);
-    setInstrChoice(true);
-  }, []);
-  const handleShowResults = useCallback(() => {
-    setInstrChoice(true);
-    setInstrTab("results");
-    window.setTimeout(() => {
-      const el = document.getElementById("instrument-results");
-      el?.scrollIntoView({ block: "nearest" });
-      el?.focus({ preventScroll: true });
-    }, 60);
-  }, []);
 
   const handleRetryPair = useCallback(() => {
     if (roleBefore && roleAfter) handleLoadPair(roleBefore, roleAfter);
@@ -714,7 +670,7 @@ export default function App() {
       if (raf) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
-        setVw({ w: window.innerWidth, h: window.innerHeight });
+        setVw(window.innerWidth);
       });
     };
     window.addEventListener("resize", onResize);
@@ -724,101 +680,44 @@ export default function App() {
     };
   }, []);
 
-  // The sidebar sits just under the floating header, whatever its height.
-  // Layout box, not getBoundingClientRect: the header enters with a transform.
-  useEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
-    const measure = () => setHeaderBottom(el.offsetTop + el.offsetHeight);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
   /**
-   * Show step `id` in the panel.  `user`: the user asked for it (edge tab, step
-   * rail, hero, a notice's link): focus moves to the step heading.  Otherwise
-   * (auto-advance, a state that needs attention) the panel opens as a peek
-   * and focus stays where it is.
+   * Open step `id` as the current page.  The page that was showing slides out
+   * (unless the hero covers the swap) and focus moves to the new page heading.
    */
-  const showStep = useCallback((id: StepId, user: boolean) => {
+  const showStep = useCallback((id: StepId, opts: { fromHero?: boolean } = {}) => {
     const from = stepRef.current;
-    const ids = STEPS.map((x) => x.id);
-    // slide the content sideways only when the step changes inside an open panel
-    setSwapDir(panelOpenRef.current && from !== id ? (ids.indexOf(id) > ids.indexOf(from) ? "next" : "prev") : null);
-    stepRef.current = id;
-    setStep(id);
-    setPeek(true);
-    if (user) {
-      const ae = document.activeElement;
-      if (ae instanceof HTMLElement && !ae.closest("#step-panel")) openerRef.current = ae;
-      setFocusReq((f) => ({ n: f.n + 1, to: "heading" }));
+    if (from !== id) {
+      const dir: SwapDir = STEP_IDS.indexOf(id) > STEP_IDS.indexOf(from) ? "next" : "prev";
+      stepRef.current = id;
+      setStep(id);
+      setEnterDir(dir);
+      setLeavingPage(opts.fromHero || prefersReducedMotion() ? null : { id: from, dir });
+      setMapExpanded(false);
+      if (id !== "locate") setDrawMode(false); // drawing belongs to Locate
     }
+    setFocusReq((n) => n + 1);
   }, []);
-  const autoStep = useCallback((id: StepId) => showStep(id, false), [showStep]);
-  const goTo = useCallback((id: StepId) => showStep(id, true), [showStep]);
-  const handleOpenPanel = useCallback(() => showStep(stepRef.current, true), [showStep]);
+  const goTo = useCallback((id: StepId) => showStep(id), [showStep]);
+  const autoStep = goTo;
 
-  /** Tuck the panel away (unpinning it); focus returns to the opener or edge tab. */
-  const tuckPanel = useCallback(
-    (restoreFocus: boolean) => {
-      // the phone sheet has no pin: collapsing it keeps the desktop choice
-      if (!phone) {
-        setPinned(false);
-        writePinned(false);
-      }
-      setPeek(false);
-      if (restoreFocus) setFocusReq((f) => ({ n: f.n + 1, to: "opener" }));
-    },
-    [phone],
-  );
-  const handleTogglePin = useCallback(() => {
-    const next = !pinned;
-    setPinned(next);
-    writePinned(next);
-    // unpinning leaves it open as a peek; pinning refits the map beside it
-    setPeek(true);
-    if (next) setFitKey((k) => k + 1);
-  }, [pinned]);
-  // Map drag (or the click consumed in handlePickLocation) tucks a peek.
-  const handleMapInteract = useCallback(() => {
-    if (peekOnlyRef.current) setPeek(false);
-  }, []);
+  // the outgoing page is dropped once its exit has played
+  useEffect(() => {
+    if (!leavingPage) return;
+    const t = window.setTimeout(() => setLeavingPage(null), MOTION_MS);
+    return () => window.clearTimeout(t);
+  }, [leavingPage]);
 
   useEffect(() => {
-    if (focusReq.n === 0) return;
+    if (focusReq === 0) return;
     const id = requestAnimationFrame(() => {
-      if (focusReq.to === "heading") {
-        document.getElementById("step-heading")?.focus({ preventScroll: true });
-        return;
-      }
-      const opener = openerRef.current;
-      openerRef.current = null;
-      const target =
-        opener && opener.isConnected && !opener.closest("[inert]")
-          ? opener
-          : document.getElementById(phone ? "step-heading-toggle" : "step-edge-tab");
-      target?.focus({ preventScroll: true });
+      document.getElementById("step-heading")?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusReq]);
 
-  // Escape tucks a peek (never a pinned panel).
-  useEffect(() => {
-    if (heroOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || !peekOnlyRef.current) return;
-      tuckPanel(true);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [heroOpen, tuckPanel]);
-
   // Walk the user forward as the workflow progresses: a search starts ->
-  // Scenes; compatible pairs found -> Pairs; a pair is ready -> Change.  Each
-  // opens as a peek so the result is seen; map interaction tucks it again.
+  // Scenes; compatible pairs found -> Pairs; a pair is ready -> Change.  Only
+  // while the user is still where auto-advance (or the Pairs page) left them.
   const prevSearching = useRef(false);
   useEffect(() => {
     if (searching && !prevSearching.current) {
@@ -844,18 +743,10 @@ export default function App() {
     prevLoaded.current = pairLoaded;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pairLoaded]);
-  // A state that needs attention (failed search, nothing found, pair failed
-  // or metadata only) is shown in the panel: never leave it tucked away.
-  const attention =
-    viewState.kind === "error" || viewState.kind === "no-observations" || viewState.kind === "metadata-only";
-  useEffect(() => {
-    if (attention) setPeek(true);
-  }, [attention, viewState.kind]);
-
   const enterFromHero = useCallback(
     (id: StepId) => {
       setHeroOpen(false);
-      showStep(id, true);
+      showStep(id, { fromHero: true });
     },
     [showStep],
   );
@@ -870,7 +761,7 @@ export default function App() {
   const afterScene = (roleAfter && sceneById.get(roleAfter)) || null;
   const selectedScene = (selectedSceneId && sceneById.get(selectedSceneId)) || null;
 
-  // ---- instrument row: derived from the same key-gated active pair ------
+  // ---- observations table: derived from the same key-gated active pair ---
   // Scenes known to lack usable rasters: every suggested pair containing the
   // scene is metadata-only, or the selected pair is known unavailable.
   const metadataOnlySceneIds = useMemo(() => {
@@ -899,32 +790,6 @@ export default function App() {
     }
     return ids;
   }, [pairs, metadataOnlyPairIds, roleBefore, roleAfter, sceneById, unavailablePairs, example]);
-  const instrSummaries: Record<InstrumentTab, string> = {
-    observations: searching
-      ? "searching…"
-      : scenes.length > 0
-        ? `${scenes.length} scene${scenes.length === 1 ? "" : "s"}`
-        : searched
-          ? "none found"
-          : "no search yet",
-    results:
-      viewState.kind === "ready" && summary
-        ? `${channel} median ${formatSigned(summary.median)} ${summary.unit}`
-        : viewState.kind === "loading-raster"
-          ? "loading…"
-          : "no comparison",
-    graph:
-      viewState.kind === "ready" && pairStats
-        ? `${pairStats.acquisitions.length} acquisitions`
-        : viewState.kind === "loading-raster"
-          ? "loading…"
-          : "no comparison",
-  };
-  // The dock appears with the first search; it is the only way to the tables
-  // and the graph on larger screens.  On phones the same content is inline in
-  // the Change and Explain steps instead.
-  const showDock = !phone && (searched || searching || pairLoaded);
-  const rowVisible = showDock && instrOpen;
 
   // ---- header status reflects the real selection -----------------------
   let statusLabel = "No comparison loaded";
@@ -948,36 +813,10 @@ export default function App() {
     statusTone = "error";
   }
 
-  // ---- panel geometry ------------------------------------------------------
-  // Desktop: a column under the header along the left edge.  Phone: a bottom
-  // sheet whose collapsed state shows only its 64px header bar.
-  const SHEET_BAR = 64;
-  const sidebarW = phone ? vw.w - 24 : Math.min(400, Math.max(320, Math.round(vw.w * 0.3)));
-  const panelTop = phone ? Math.max(headerBottom + 12, vw.h * 0.45) : headerBottom + 12;
-  const panelRect = {
-    l: phone ? 12 : 16,
-    t: panelTop,
-    w: sidebarW,
-    h: Math.max(phone ? SHEET_BAR : 200, vw.h - panelTop - 16),
-  };
-  const dockLeft = isPinned ? panelRect.l + panelRect.w + 16 : 16;
-  // Tells the map (fit padding, divider range, legend and controls) that a
-  // surface moved or changed size without the map seeing a resize.  A peek
-  // overlays the map and is not part of it.
-  const layoutKey = [
-    isPinned ? `${Math.round(panelRect.t)}:${Math.round(panelRect.w)}:${Math.round(panelRect.h)}` : "-",
-    Math.round(headerBottom),
-    phone ? `p${Math.round(vw.h)}` : "d",
-    showDock ? (rowVisible ? "o" : "c") : "-",
-  ].join("|");
-  useEffect(() => {
-    window.dispatchEvent(new Event(LAYOUT_EVENT));
-  }, [layoutKey, heroOpen]);
-
-  const stepDef = STEPS.find((x) => x.id === step)!;
+  // ---- step pages ------------------------------------------------------------
   const stepBlurb: Record<StepId, string> = {
-    locate: "Pick a place and the area to watch.",
-    scenes: "NISAR passes over your area.",
+    locate: "Pick a place and the area to watch, then search the NISAR catalogue.",
+    scenes: "NISAR passes over your area. Mark a Before and an After scene.",
     pairs: "Before and after scenes from the same orbit and track.",
     change: "Flip between before, after and the change between them.",
     explain: "Change statistics and an AI reading of what they may mean.",
@@ -991,21 +830,17 @@ export default function App() {
     viewState.kind === "metadata-only" ||
     viewState.kind === "no-observations" ||
     viewState.kind === "no-compatible-pair";
-  const notice = (here: StepId) => (
-    <div className="px-5 pt-3 pb-1">
-      <StateNotice
-        state={viewState}
-        here={here}
-        onNavigate={goTo}
-        onRetrySearch={handleSearchData}
-        onRetryPair={handleRetryPair}
-        canRetryPair={Boolean(roleBefore && roleAfter)}
-      />
-    </div>
+  const stateNotice = (here: StepId) => (
+    <StateNotice
+      state={viewState}
+      here={here}
+      onNavigate={goTo}
+      onRetrySearch={handleSearchData}
+      onRetryPair={handleRetryPair}
+      canRetryPair={Boolean(roleBefore && roleAfter)}
+    />
   );
-  const locked = (message: string, cta: { id: StepId; label: string }) => (
-    <LockedStep step={step} message={message} ctaLabel={cta.label} onCta={() => goTo(cta.id)} />
-  );
+  const notice = (here: StepId) => <div className="px-5 pt-4 pb-1">{stateNotice(here)}</div>;
   const needPair = (): { id: StepId; label: string } =>
     stepAvailable.pairs
       ? { id: "pairs", label: "Choose a pair" }
@@ -1013,23 +848,6 @@ export default function App() {
         ? { id: "scenes", label: "View scenes" }
         : { id: "locate", label: "Go to Locate" };
 
-  const catalogueProps = {
-    scenes,
-    pairs,
-    metadataOnlyPairIds,
-    status: viewState,
-    truncated,
-    dateFrom,
-    dateTo,
-    onApplyDates: handleApplyDates,
-    selectedSceneId,
-    onSelectScene: setSelectedSceneId,
-    roleBefore,
-    roleAfter,
-    onAssignRole: handleAssignRole,
-    onLoadPair: handleLoadPair,
-    onLoadSuggested: handleLoadSuggested,
-  };
   const observationsTable = (
     <ObservationsTable
       status={viewState}
@@ -1043,380 +861,336 @@ export default function App() {
       onSelectScene={setSelectedSceneId}
     />
   );
-  const resultsTable = (
-    <ResultsTable
-      status={viewState}
-      stats={pairStats}
-      channel={channel}
-      both={bothChannels}
-      onBoth={setBothChannels}
-    />
-  );
-  const temporalGraph = (
-    <TemporalGraph
-      status={viewState}
-      stats={pairStats}
-      channel={channel}
-      view={graphView}
-      onView={setGraphView}
-    />
-  );
-
-  const phoneInstruments = phone && pairLoaded && (
-    <div className="px-5 pb-4">
-      <h3 className="vx-section__title">Tables and graph</h3>
-      <InstrumentDock
-        variant="inline"
-        open
-        onToggle={handleToggleInstruments}
-        tab={instrTab}
-        onTab={setInstrTab}
-        onOpenTab={handleOpenInstrument}
-        summaries={instrSummaries}
-        observations={observationsTable}
-        results={resultsTable}
-        graph={temporalGraph}
-      />
-    </div>
-  );
-
-  let stepBody: ReactNode;
-  switch (step) {
-    case "locate":
-      stepBody = (
-        <>
-          {notice("locate")}
-          <SearchPanel
-            onLocationSearch={handleLocationSearch}
-            searchingLocation={searchingLocation}
-            locationLabel={locationLabel}
-            locationError={locationError}
-            aoi={aoi}
-            aoiSizeKm={aoiSizeKm}
-            onAoiSizeChange={handleAoiSizeChange}
-            drawMode={drawMode}
-            onToggleDraw={handleToggleDraw}
-            onFit={handleFit}
-            onSearchData={handleSearchData}
-            searching={searching}
-            exampleLabel={example ? `${example.manifest.studyArea.name}` : null}
-            onExample={handleExample}
-          />
-        </>
-      );
-      break;
-    case "scenes":
-      stepBody = stepAvailable.scenes ? (
-        <>
-          {notice("scenes")}
-          <CataloguePanel view="scenes" onGoTo={goTo} {...catalogueProps} />
-          {selectedScene && (
-            <DisclosureSection title="Selected scene">
-              <ObservationPanel
-                viewer={viewer}
-                pol={channel}
-                beforeScene={beforeScene}
-                afterScene={afterScene}
-                selectedScene={selectedScene}
-                locationLabel={locationLabel}
-              />
-            </DisclosureSection>
-          )}
-        </>
-      ) : (
-        locked(stepDef.locked, { id: "locate", label: "Go to Locate" })
-      );
-      break;
-    case "pairs":
-      stepBody = stepAvailable.pairs ? (
-        <>
-          {notice("pairs")}
-          <CataloguePanel view="pairs" onGoTo={goTo} {...catalogueProps} />
-        </>
-      ) : stepAvailable.scenes ? (
-        // searching, failed, or nothing found: the notice says which
-        notice("pairs")
-      ) : (
-        locked(stepDef.locked, { id: "locate", label: "Go to Locate" })
-      );
-      break;
-    case "change":
-      stepBody =
-        viewState.kind === "ready" || viewState.kind === "no-valid-pixels" ? (
-          <>
-            {viewState.kind === "no-valid-pixels" && notice("change")}
-            <ComparePanel
-              dataset={viewState.dataset.viewer}
-              channelStatus={viewState.dataset.channelStatus}
-              pol={channel}
-              onPolChange={setPol}
-              layer={layer}
-              onLayerChange={handleLayerChange}
-              canCompare={channel !== ""}
-              computing={rendering}
-              showAllFootprints={showAllFootprints}
-              onToggleFootprints={setShowAllFootprints}
-              onFit={handleFit}
-            />
-            {phone && (
-              <div className="px-5 pb-4">
-                <MapLegend
-                  viewer={viewState.dataset.viewer}
-                  layer={layer === "compare" ? "compare" : layer}
-                  pol={channel}
-                  saturation={saturation}
-                  variant="inline"
-                />
-              </div>
-            )}
-            {phoneInstruments}
-          </>
-        ) : (
-          <>
-            {pendingNotice && notice("change")}
-            {locked(stepDef.locked, needPair())}
-          </>
-        );
-      break;
-    case "explain":
-      stepBody =
-        viewState.kind === "ready" || viewState.kind === "no-valid-pixels" ? (
-          <>
-            {viewState.kind === "no-valid-pixels" && notice("explain")}
-            <StatsPanel
-              dataset={viewState.dataset.viewer}
-              pol={channel}
-              summary={summary}
-              statsInRow={rowVisible}
-              onShowResults={handleShowResults}
-              ai={ai}
-              onExplain={handleExplain}
-            />
-            {viewState.dataset.viewer.limitations[0] && (
-              <p className="vx-note px-5 py-3">{viewState.dataset.viewer.limitations[0]}</p>
-            )}
-            <DisclosureSection title="Observation details">
-              <ObservationPanel
-                viewer={viewer}
-                pol={channel}
-                beforeScene={beforeScene}
-                afterScene={afterScene}
-                selectedScene={selectedScene}
-                locationLabel={locationLabel}
-              />
-            </DisclosureSection>
-            {phoneInstruments}
-          </>
-        ) : (
-          <>
-            {pendingNotice && notice("explain")}
-            {locked(stepDef.locked, needPair())}
-          </>
-        );
-      break;
-  }
-
-  const sheetCollapsed = phone && !panelOpen;
-  const stepHeader = (
-    <div className={`flex items-center gap-3 pr-3 pl-5 ${sheetCollapsed ? "min-h-[64px] py-2" : "pt-4 pb-1"}`}>
-      <span className="text-app-flare">
-        <StepIcon id={step} size={20} />
-      </span>
-      <div key={step} className="vx-swap min-w-0 flex-1" data-dir={swapDir ?? undefined}>
-        <h2 id="step-heading" tabIndex={-1} className="vx-step-heading">{stepDef.label}</h2>
-        {!sheetCollapsed && <p className="m-0 text-[12px] leading-[18px] text-app-muted">{stepBlurb[step]}</p>}
+  // the legend inside the page (Change, Explain); elsewhere it floats on the map
+  const legendInline =
+    viewState.kind === "ready" || viewState.kind === "no-valid-pixels" ? (
+      <div className="vx-section">
+        <MapLegend
+          viewer={viewState.dataset.viewer}
+          layer={layer === "compare" ? "compare" : layer}
+          pol={channel}
+          saturation={saturation}
+          variant="inline"
+        />
       </div>
-      {phone ? (
-        <button
-          type="button"
-          id="step-heading-toggle"
-          className="vx-button vx-button--ghost vx-button--compact shrink-0 !px-3"
-          aria-expanded={!sheetCollapsed}
-          aria-controls={sheetCollapsed ? undefined : "step-panel-body"}
-          onClick={() => (sheetCollapsed ? handleOpenPanel() : tuckPanel(true))}
-          aria-label={sheetCollapsed ? `Show ${stepDef.label} panel` : "Hide panel to see the map"}
-        >
-          {sheetCollapsed ? <ChevronUp size={18} aria-hidden /> : <ChevronDown size={18} aria-hidden />}
-        </button>
-      ) : (
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            className="vx-icon-button"
-            aria-pressed={isPinned}
-            aria-label="Keep panel open"
-            title={isPinned ? "Unpin: the panel tucks away when you use the map" : "Pin: keep the panel open beside the map"}
-            onClick={handleTogglePin}
-          >
-            {isPinned ? <PinOff size={18} aria-hidden /> : <Pin size={18} aria-hidden />}
-          </button>
-          <button
-            type="button"
-            className="vx-icon-button"
-            aria-label="Tuck panel away"
-            title="Tuck the panel into the left edge"
-            onClick={() => tuckPanel(true)}
-          >
-            <PanelLeftClose size={18} aria-hidden />
-          </button>
+    ) : null;
+
+  /** Steps whose page has the map; the others are a full-page empty state. */
+  const hasMap: Record<StepId, boolean> = {
+    locate: true,
+    scenes: stepAvailable.scenes,
+    pairs: stepAvailable.pairs,
+    change: pairLoaded,
+    explain: pairLoaded,
+  };
+
+  const pageBody = (id: StepId): ReactNode => {
+    const def = STEPS.find((x) => x.id === id)!;
+    if (!hasMap[id]) {
+      let title = "No comparison loaded";
+      let cta = needPair();
+      let withNotice = pendingNotice;
+      if (id === "scenes") {
+        title = "No scenes yet";
+        cta = { id: "locate", label: "Go to Locate" };
+        withNotice = false;
+      } else if (id === "pairs") {
+        title = "No pairs yet";
+        cta = stepAvailable.scenes ? { id: "scenes", label: "View scenes" } : { id: "locate", label: "Go to Locate" };
+        withNotice = stepAvailable.scenes && pendingNotice;
+      }
+      return (
+        <div className="vx-page__content">
+          <LockedStep
+            step={id}
+            title={title}
+            message={def.locked}
+            notice={withNotice ? stateNotice(id) : undefined}
+            ctaLabel={cta.label}
+            onCta={() => goTo(cta.id)}
+          />
         </div>
-      )}
-    </div>
-  );
-  const panelBody = (
-    <div id="step-panel-body" key={step} className="vx-swap" data-dir={swapDir ?? undefined}>
-      {stepBody}
-    </div>
-  );
+      );
+    }
+    switch (id) {
+      case "locate":
+        return (
+          <div className="vx-page__content">
+            <Panel area="side">
+              {notice("locate")}
+              <SearchPanel
+                onLocationSearch={handleLocationSearch}
+                searchingLocation={searchingLocation}
+                locationLabel={locationLabel}
+                locationError={locationError}
+                aoi={aoi}
+                aoiSizeKm={aoiSizeKm}
+                onAoiSizeChange={handleAoiSizeChange}
+                drawMode={drawMode}
+                onToggleDraw={handleToggleDraw}
+                onFit={handleFit}
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                onSearchData={handleApplyDates}
+                searching={searching}
+                exampleLabel={example ? `${example.manifest.studyArea.name}` : null}
+                onExample={handleExample}
+              />
+            </Panel>
+          </div>
+        );
+      case "scenes":
+        return (
+          <div className="vx-page__content">
+            <Panel area="info">
+              {notice("scenes")}
+              <DateFilter dateFrom={dateFrom} dateTo={dateTo} searching={searching} onApply={handleApplyDates} />
+              {truncated && (
+                <div className="vx-section">
+                  <p className="vx-note">
+                    Results are truncated by the catalogue limit; narrow the date range or area.
+                  </p>
+                </div>
+              )}
+              <PairSummary
+                scenes={scenes}
+                roleBefore={roleBefore}
+                roleAfter={roleAfter}
+                onLoadPair={handleLoadPair}
+                pairCount={pairs.length}
+                onSeePairs={() => goTo("pairs")}
+              />
+              {selectedScene && <SceneDetails scene={selectedScene} />}
+            </Panel>
+            <Panel
+              area="table"
+              title="Observations"
+              scroll={false}
+              className="vx-panel--table"
+              right={<span className="vx-panel__meta">{searching ? "searching…" : `${scenes.length} found`}</span>}
+            >
+              {observationsTable}
+            </Panel>
+          </div>
+        );
+      case "pairs":
+        return (
+          <div className="vx-page__content">
+            <div className="vx-col" style={{ gridArea: "list" }}>
+              <Panel
+                title="Suggested pairs"
+                className="vx-panel--grow"
+                right={<span className="vx-panel__meta">{pairs.length} compatible</span>}
+              >
+                <div className="px-4 pt-1 pb-3">{stateNotice("pairs")}</div>
+                <SuggestedPairs
+                  pairs={pairs}
+                  metadataOnlyPairIds={metadataOnlyPairIds}
+                  roleBefore={roleBefore}
+                  roleAfter={roleAfter}
+                  onLoadSuggested={handleLoadSuggested}
+                />
+              </Panel>
+              <Panel
+                title="Choose Before and After"
+                right={
+                  <button type="button" className="vx-button vx-button--ghost vx-button--compact" onClick={() => goTo("scenes")}>
+                    Scene table
+                  </button>
+                }
+              >
+                <ManualPair
+                  scenes={scenes}
+                  roleBefore={roleBefore}
+                  roleAfter={roleAfter}
+                  onAssignRole={handleAssignRole}
+                  onLoadPair={handleLoadPair}
+                />
+              </Panel>
+            </div>
+          </div>
+        );
+      case "change":
+        return viewState.kind === "ready" || viewState.kind === "no-valid-pixels" ? (
+          <div className="vx-page__content">
+            <Panel area="side">
+              {viewState.kind === "no-valid-pixels" && notice("change")}
+              <ComparePanel
+                dataset={viewState.dataset.viewer}
+                channelStatus={viewState.dataset.channelStatus}
+                pol={channel}
+                onPolChange={setPol}
+                layer={layer}
+                onLayerChange={handleLayerChange}
+                canCompare={channel !== ""}
+                computing={rendering}
+                showAllFootprints={showAllFootprints}
+                onToggleFootprints={setShowAllFootprints}
+                onFit={handleFit}
+                legend={legendInline}
+              />
+            </Panel>
+          </div>
+        ) : null;
+      case "explain":
+        return viewState.kind === "ready" || viewState.kind === "no-valid-pixels" ? (
+          <div className="vx-page__content">
+            <Panel area="ai">
+              {viewState.kind === "no-valid-pixels" && notice("explain")}
+              <StatsPanel
+                dataset={viewState.dataset.viewer}
+                pol={channel}
+                summary={summary}
+                ai={ai}
+                onExplain={handleExplain}
+              />
+              {legendInline}
+              {viewState.dataset.viewer.limitations[0] && (
+                <p className="vx-note px-5 py-3">{viewState.dataset.viewer.limitations[0]}</p>
+              )}
+              <DisclosureSection title="Observation details">
+                <ObservationPanel
+                  viewer={viewer}
+                  pol={channel}
+                  beforeScene={beforeScene}
+                  afterScene={afterScene}
+                  selectedScene={selectedScene}
+                  locationLabel={locationLabel}
+                />
+              </DisclosureSection>
+            </Panel>
+            <Panel area="results" title="Results" scroll={false} className="vx-panel--table">
+              <ResultsTable
+                status={viewState}
+                stats={pairStats}
+                channel={channel}
+                both={bothChannels}
+                onBoth={setBothChannels}
+              />
+            </Panel>
+            <Panel area="graph" title="Graph" scroll={false} className="vx-panel--graph">
+              <TemporalGraph
+                status={viewState}
+                stats={pairStats}
+                channel={channel}
+                view={graphView}
+                onView={setGraphView}
+              />
+            </Panel>
+          </div>
+        ) : null;
+    }
+  };
+
+  const renderPage = (id: StepId, current: boolean, dir: SwapDir) => {
+    const def = STEPS.find((x) => x.id === id)!;
+    const next = NEXT_STEP[id];
+    const map = hasMap[id];
+    return (
+      <div
+        key={id}
+        className="vx-page"
+        data-step={id}
+        data-locked={map ? undefined : ""}
+        data-enter={current ? dir : undefined}
+        data-leave={current ? undefined : dir}
+        data-map-expanded={current && map && mapExpanded ? "" : undefined}
+        inert={!current}
+        aria-hidden={current ? undefined : true}
+      >
+        <div className="vx-page__head">
+          <span className="vx-page__icon">
+            <StepIcon id={id} size={20} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 id={current ? "step-heading" : undefined} tabIndex={-1} className="vx-step-heading">
+              {def.label}
+            </h2>
+            <p className="vx-page__blurb">{stepBlurb[id]}</p>
+          </div>
+          {next && stepAvailable[next] && (
+            <button type="button" className="vx-button vx-button--compact shrink-0" onClick={() => goTo(next)}>
+              <span className="hidden sm:inline">Next:</span> {STEPS.find((x) => x.id === next)!.label}
+              <ChevronRight size={16} aria-hidden />
+            </button>
+          )}
+        </div>
+        {map && <div className="vx-page__map" data-map-slot={current ? "" : undefined} />}
+        {pageBody(id)}
+      </div>
+    );
+  };
 
   return (
-    <div
-      className="vx-shell relative h-full overflow-hidden bg-black text-app-text"
-      data-hero={heroOpen}
-      style={{ ["--vx-dock-left" as string]: `${dockLeft}px` }}
-    >
+    <div className="vx-shell relative h-full overflow-hidden bg-black text-app-text" data-hero={heroOpen}>
       <LiquidGlassFilter animate={heroOpen} />
 
-      {/* deep space behind a full-bleed map */}
+      {/* deep space behind the page frame */}
       <div className="absolute inset-0" aria-hidden="true">
         <Starfield count={110} animate={false} nebula={false} />
       </div>
-      <main className="vx-map-host absolute inset-0" inert={heroOpen}>
-        <MapView
-          aoi={aoi}
-          scenes={scenes}
-          selectedSceneId={selectedSceneId}
-          onSelectScene={setSelectedSceneId}
-          drawMode={drawMode}
-          onAoiDrawn={handleAoiDrawn}
-          onPickLocation={handlePickLocation}
-          onUserInteract={handleMapInteract}
-          display={display}
-          pol={channel}
-          saturation={saturation}
-          urls={urls}
-          pairInstance={pairInstance}
-          rendering={rendering}
-          fallbackUrl={fallbackUrl}
-          overlayBounds={activePair?.bounds ?? null}
-          viewer={viewer}
-          fitKey={fitKey}
-          layoutKey={layoutKey}
-          roleBefore={roleBefore}
-          roleAfter={roleAfter}
-          showAllFootprints={showAllFootprints}
-          showLegend={!phone}
-        />
-      </main>
 
-      {/* floating glass header: a centred pill that hugs its contents */}
-      <div
-        ref={headerRef}
-        className="pointer-events-none absolute top-4 right-4 left-4 z-[1001] flex justify-center"
-        inert={heroOpen}
-      >
-        <h1 className="sr-only">NISAR Surface Change</h1>
-        <div data-cover="top" className="pointer-events-auto max-w-full min-w-0">
-          <AppHeader
-            active={step}
-            available={stepAvailable}
-            onPick={goTo}
-            statusLabel={statusLabel}
-            statusTone={statusTone}
-            statusNote={statusNote}
-            onGlobe={handleGlobe}
-          />
-        </div>
-      </div>
-
-      {/* What the map measures for the panel: only a pinned panel (desktop)
-          or the phone sheet's header bar takes room from the map. */}
-      {(isPinned || phone) && (
-        <div
-          aria-hidden="true"
-          data-cover={phone ? "bottom" : "left"}
-          style={{
-            position: "absolute",
-            left: panelRect.l,
-            top: phone ? vw.h - 16 - SHEET_BAR : panelRect.t,
-            width: panelRect.w,
-            height: phone ? SHEET_BAR : panelRect.h,
-            visibility: "hidden",
-            pointerEvents: "none",
-          }}
-        />
-      )}
-
-      {/* step panel: slides in from the left edge (phones: a bottom sheet) */}
-      <div inert={heroOpen}>
-        {phone ? (
-          <div
-            className="vx-sheet absolute z-[1000]"
-            style={{
-              left: panelRect.l,
-              top: panelRect.t,
-              width: panelRect.w,
-              height: panelRect.h,
-              transform: sheetCollapsed ? `translate3d(0, ${panelRect.h - SHEET_BAR}px, 0)` : undefined,
-            }}
-          >
-            <Glass as="aside" id="step-panel" aria-label={`${stepDef.label} panel`} className="lg-panel vx-side vx-in-bottom rounded-[28px]">
-              <div className="flex h-full flex-col">
-                {stepHeader}
-                {!sheetCollapsed && <div className="vx-scroll min-h-0 flex-1">{panelBody}</div>}
-              </div>
-            </Glass>
+      <div className="vx-frame" inert={heroOpen}>
+        <header className="vx-frame__head">
+          <h1 className="sr-only">NISAR Surface Change</h1>
+          <div className="max-w-full min-w-0">
+            <AppHeader
+              active={step}
+              available={stepAvailable}
+              onPick={goTo}
+              statusLabel={statusLabel}
+              statusTone={statusTone}
+              statusNote={statusNote}
+              onGlobe={handleGlobe}
+            />
           </div>
-        ) : panel.mounted ? (
-          <Glass
-            as="aside"
-            id="step-panel"
-            aria-label={`${stepDef.label} panel`}
-            data-pinned={isPinned || undefined}
-            className={`lg-panel vx-side absolute z-[1000] rounded-[28px] ${panel.leaving ? "vx-out-left" : "vx-in-left"}`}
-            style={{ left: panelRect.l, top: panelRect.t, width: panelRect.w, height: panelRect.h }}
-            inert={panel.leaving}
-          >
-            <div className="flex h-full flex-col">
-              {stepHeader}
-              <div className="vx-scroll min-h-0 flex-1">{panelBody}</div>
-            </div>
-          </Glass>
-        ) : null}
-        {!phone && !panelOpen && (
-          <Glass
-            as="button"
-            type="button"
-            id="step-edge-tab"
-            className="lg-panel vx-edge-tab vx-in-left"
-            aria-label={`Show ${stepDef.label} panel`}
-            aria-expanded={false}
-            title={`Show ${stepDef.label}`}
-            onClick={handleOpenPanel}
-          >
-            <span className="flex flex-col items-center gap-2">
-              <StepIcon id={step} size={20} />
-              <ChevronRight size={16} aria-hidden />
-            </span>
-          </Glass>
-        )}
-      </div>
+        </header>
 
-      {showDock && (
-        <InstrumentDock
-          variant="dock"
-          open={instrOpen}
-          onToggle={handleToggleInstruments}
-          tab={instrTab}
-          onTab={setInstrTab}
-          onOpenTab={handleOpenInstrument}
-          summaries={instrSummaries}
-          observations={observationsTable}
-          results={resultsTable}
-          graph={temporalGraph}
-          inert={heroOpen}
-        />
-      )}
+        <main className="vx-frame__body">
+          {leavingPage && renderPage(leavingPage.id, false, leavingPage.dir)}
+          {renderPage(step, true, enterDir)}
+          {/* the one map: laid over the current page's map slot */}
+          <MapStage slotKey={`${step}|${hasMap[step]}|${mapExpanded}`} heroOpen={heroOpen}>
+            <MapView
+              aoi={aoi}
+              scenes={scenes}
+              selectedSceneId={selectedSceneId}
+              onSelectScene={setSelectedSceneId}
+              drawMode={drawMode}
+              onAoiDrawn={handleAoiDrawn}
+              onPickLocation={handlePickLocation}
+              pickEnabled={step === "locate"}
+              display={display}
+              pol={channel}
+              saturation={saturation}
+              urls={urls}
+              pairInstance={pairInstance}
+              rendering={rendering}
+              fallbackUrl={fallbackUrl}
+              overlayBounds={activePair?.bounds ?? null}
+              viewer={viewer}
+              fitKey={fitKey}
+              roleBefore={roleBefore}
+              roleAfter={roleAfter}
+              showAllFootprints={showAllFootprints}
+              showLegend={!phone && step !== "change" && step !== "explain"}
+            />
+            {phone && hasMap[step] && (
+              <Glass
+                as="button"
+                type="button"
+                className="lg-panel vx-stage__expand"
+                aria-pressed={mapExpanded}
+                aria-label="Full-height map"
+                title={mapExpanded ? "Show the page below the map" : "Expand the map to full height"}
+                onClick={() => setMapExpanded((v) => !v)}
+              >
+                {mapExpanded ? <Minimize2 size={18} aria-hidden /> : <Maximize2 size={18} aria-hidden />}
+              </Glass>
+            )}
+          </MapStage>
+        </main>
+      </div>
 
       {hero.mounted && <Hero intro={heroIntro} leaving={hero.leaving} onEnter={enterFromHero} />}
     </div>

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { ViewerDataset } from "../lib/data";
 import { formatAcquisitionTime } from "../lib/data";
 import { DisclosureSection, KeyRow, Section, Spinner } from "./ui";
@@ -19,6 +20,8 @@ interface ComparePanelProps {
   onToggleFootprints: (show: boolean) => void;
   /** frame the area of interest on the map again */
   onFit: () => void;
+  /** the legend for the current layer and channel, shown under the layer switch */
+  legend?: ReactNode;
 }
 
 const LAYERS: { id: DisplayChoice; label: string }[] = [
@@ -40,6 +43,7 @@ export default function ComparePanel({
   showAllFootprints,
   onToggleFootprints,
   onFit,
+  legend,
 }: ComparePanelProps) {
   return (
     <>
@@ -97,6 +101,8 @@ export default function ComparePanel({
           )}
         </p>
       </Section>
+
+      {legend}
 
       <DisclosureSection title="Acquisition" summary={`${dataset.temporalBaselineDays} days`}>
         <dl className="m-0">

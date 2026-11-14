@@ -223,12 +223,6 @@
     transform: translate3d(0, var(--vx-travel-y, calc(100% + 16px)), 0);
   }
 }
-@keyframes vx-out-left {
-  to {
-    opacity: 0;
-    transform: translate3d(var(--vx-travel-x, calc(-100% - 16px)), 0, 0);
-  }
-}
 @keyframes vx-out-top {
   to {
     opacity: 0;
@@ -241,24 +235,47 @@
     transform: translate3d(0, var(--vx-travel-y, calc(100% + 16px)), 0);
   }
 }
-/* step content changing inside an open panel: a short sideways slide */
-@keyframes vx-swap-next {
+/* Step pages swap sideways, direction by step order: the incoming page comes
+   in from the side its step lies on and the outgoing one leaves the other way.
+   The map stage enters with the page (it glides between pages by FLIP, see
+   MapStage.tsx). */
+@keyframes vx-page-in-next {
   from {
     opacity: 0;
-    transform: translate3d(16px, 0, 0);
+    transform: translate3d(var(--vx-page-travel), 0, 0);
   }
 }
-@keyframes vx-swap-prev {
+@keyframes vx-page-in-prev {
   from {
     opacity: 0;
-    transform: translate3d(-16px, 0, 0);
+    transform: translate3d(calc(var(--vx-page-travel) * -1), 0, 0);
   }
 }
-.vx-swap[data-dir] {
-  animation: vx-swap-next var(--vx-dur) var(--vx-ease) backwards;
+@keyframes vx-page-out-next {
+  to {
+    opacity: 0;
+    transform: translate3d(calc(var(--vx-page-travel) * -1), 0, 0);
+  }
 }
-.vx-swap[data-dir="prev"] {
-  animation-name: vx-swap-prev;
+@keyframes vx-page-out-prev {
+  to {
+    opacity: 0;
+    transform: translate3d(var(--vx-page-travel), 0, 0);
+  }
+}
+.vx-page[data-enter],
+.vx-stage {
+  animation: vx-page-in-next var(--vx-dur) var(--vx-ease) backwards;
+}
+.vx-page[data-enter="prev"] {
+  animation-name: vx-page-in-prev;
+}
+.vx-page[data-leave] {
+  animation: vx-page-out-next var(--vx-dur) var(--vx-ease) forwards;
+  pointer-events: none;
+}
+.vx-page[data-leave="prev"] {
+  animation-name: vx-page-out-prev;
 }
 @keyframes vx-out-fade {
   to {
@@ -285,16 +302,12 @@
 .vx-in-bottom {
   animation-name: vx-in-bottom;
 }
-.vx-out-left,
 .vx-out-top,
 .vx-out-bottom {
   animation-duration: var(--vx-dur);
   animation-timing-function: var(--vx-ease);
   animation-fill-mode: forwards;
   pointer-events: none;
-}
-.vx-out-left {
-  animation-name: vx-out-left;
 }
 .vx-out-top {
   animation-name: vx-out-top;
@@ -304,7 +317,7 @@
 }
 /* The workspace is mounted under the hero from the first render: hold every
    entrance while the hero is up so the surfaces slide in when it leaves. */
-.vx-shell[data-hero="true"] :is(.vx-in-left, .vx-in-right, .vx-in-top, .vx-in-bottom, .vx-swap):not(.vx-hero *) {
+.vx-shell[data-hero="true"] :is(.vx-in-left, .vx-in-right, .vx-in-top, .vx-in-bottom, .vx-page, .vx-stage):not(.vx-hero *) {
   animation: none;
 }
 
@@ -384,9 +397,6 @@
   position: relative;
   z-index: 3;
   padding-bottom: clamp(16px, 5vh, 44px);
-}
-.vx-hero__dock {
-  animation-delay: 120ms;
 }
 .vx-hero__dock {
   animation-delay: 120ms;
