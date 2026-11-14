@@ -63,19 +63,23 @@ function valueText(pct: number): string {
 }
 
 /** The map stage is the divider's whole range (nothing floats over it). */
-function measure(container: HTMLElement): Range {
+function measure(container: HTMLElement, labelH: number): Range {
   const w = container.clientWidth;
   const h = container.clientHeight;
-  // The zoom / basemap controls sit at the top-right of the stage (on phones
-  // just the 44px basemap button): the After label stays left of them.
+  const top = 12;
+  // The zoom / basemap controls sit at the top-right of the stage: the After
+  // label stays left of the ones in its own row (the zoom bar, or on phones
+  // the 44px basemap button), not of the wider switch further down.  Layout
+  // offsets, not rects: the stage may be mid-glide (a scale transform).
   let controlsW = 0;
   container.querySelectorAll<HTMLElement>(".leaflet-top.leaflet-right .leaflet-control").forEach((el) => {
-    controlsW = Math.max(controlsW, el.offsetWidth);
+    const y = el.offsetTop + ((el.offsetParent as HTMLElement | null)?.offsetTop ?? 0);
+    if (y < top + labelH + GAP) controlsW = Math.max(controlsW, el.offsetWidth);
   });
   return {
     left: 0,
     right: w,
-    top: 12,
+    top,
     lineTop: 0,
     lineBottom: h,
     gripY: h / 2 - GRIP / 2,
@@ -133,7 +137,7 @@ export default function CompareDivider({
 
     // Everything that needs layout is measured in relayout() and cached, so
     // render() only writes (no forced reflow per map move / pointermove).
-    let range = measure(container);
+    let range = measure(container, beforeLabel.offsetHeight);
     let width = container.clientWidth;
     let containerLeft = container.getBoundingClientRect().left;
     let beforeW = 0;
@@ -181,13 +185,13 @@ export default function CompareDivider({
     };
 
     const relayout = () => {
-      range = measure(container);
-      width = container.clientWidth;
-      containerLeft = container.getBoundingClientRect().left;
-      // labels are positioned by render(); their width does not depend on it
+      // labels are positioned by render(); their size does not depend on it
       beforeW = beforeLabel.offsetWidth;
       afterW = afterLabel.offsetWidth;
       labelH = beforeLabel.offsetHeight;
+      range = measure(container, labelH);
+      width = container.clientWidth;
+      containerLeft = container.getBoundingClientRect().left;
       root.style.setProperty("--cmp-line-top", `${range.lineTop}px`);
       root.style.setProperty("--cmp-line-h", `${Math.max(0, range.lineBottom - range.lineTop)}px`);
       root.style.setProperty("--cmp-grip-y", `${range.gripY}px`);
