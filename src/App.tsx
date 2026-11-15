@@ -62,7 +62,9 @@ import { searchNisarGcov, type NisarScene } from "./lib/discovery";
 import { geocodePlace } from "./lib/geocode";
 import { findCompatiblePairs, type ScenePair } from "./lib/pairing";
 import {
+  PAIR_LOAD_RETRY_MESSAGE,
   buildPairDataset,
+  isTransientFailure,
   pairQuicklookStatus,
   type PairDataset,
   RasterUnavailableError,
@@ -540,8 +542,9 @@ export default function App() {
           status: "error",
           key,
           metadataOnly,
-          message:
-            err instanceof Error
+          message: isTransientFailure(err)
+            ? PAIR_LOAD_RETRY_MESSAGE
+            : err instanceof Error
               ? err.message
               : "The rasters for this pair could not be prepared.",
         });

@@ -364,6 +364,15 @@ function cached<T>(
 
 type SceneStatus = { sceneId: string; status: RasterAvailability };
 
+export const PAIR_LOAD_RETRY_MESSAGE =
+  "The quicklook images for this pair could not be downloaded right now (network or server problem). Check your connection and press Retry.";
+
+export function isTransientFailure(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === "number" && (status >= 500 || status === 408 || status === 429);
+}
+
 export class RasterUnavailableError extends Error {
   constructor(
     message: string,
@@ -376,7 +385,7 @@ export class RasterUnavailableError extends Error {
 
 async function fetchText(url: string, signal?: AbortSignal): Promise<string> {
   const res = await fetch(url, { signal });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status} for ${url}`), { status: res.status });
   return res.text();
 }
 
@@ -661,6 +670,7 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
   const channelStatus: Record<string, ChannelStatus> = {};
   for (const pol of channels) channelStatus[pol] = "loading";
   let lastError: unknown;
+  let transient = false;
 
   const attempt = async (pol: string): Promise<boolean> => {
     try {
@@ -676,6 +686,7 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
       if (isAbortError(err) || signal?.aborted) throw err;
       channelStatus[pol] = "unavailable";
       lastError = err;
+      if (isTransientFailure(err)) transient = true;
       return false;
     }
   };
@@ -692,6 +703,7 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
   throwIfAborted(signal);
   if (first === null) {
     if (preparedMatches) throw lastError;
+    if (transient) throw new Error(PAIR_LOAD_RETRY_MESSAGE);
     throw new RasterUnavailableError(
       "Quicklook rasters for this pair are not available. Scene metadata is shown instead of a comparison.",
       metadataOnly(),

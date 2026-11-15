@@ -30,7 +30,7 @@ export async function decodeRaster(image: Blob): Promise<Raster> {
 
 export async function loadRaster(url: string, signal?: AbortSignal): Promise<Raster> {
   const res = await fetch(url, { signal });
-  if (!res.ok) throw new Error(`Could not load raster ${url} (HTTP ${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(`Could not load raster ${url} (HTTP ${res.status})`), { status: res.status });
   return decodeRaster(await res.blob());
 }
 
