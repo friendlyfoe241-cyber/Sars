@@ -90,6 +90,11 @@ def test_round_trip_with_analysis_facts(gemini, api_server):
     prompt = json.dumps(GeminiStub.captured["body"]["contents"])
     assert "candidateChangedAreaKm2" in prompt and "meanChangeDb" in prompt
     assert GeminiStub.captured["url"].endswith("/models/gemini-3-flash-preview:generateContent?key=test-key")
+    # thinking must stay disabled: its tokens count toward maxOutputTokens and
+    # can truncate the JSON on richer prompts
+    gen = GeminiStub.captured["body"]["generationConfig"]
+    assert gen["thinkingConfig"]["thinkingBudget"] == 0
+    assert gen["maxOutputTokens"] >= 1000
 
 
 def test_missing_key_503(api_server, monkeypatch):
@@ -207,3 +212,40 @@ def test_prompt_never_contains_secrets(gemini):
     assert out["explanation"]["limitations"] == "Cause cannot be established."
     prompt = json.dumps(GeminiStub.captured["body"])
     assert "test-key" not in json.dumps(GeminiStub.captured["body"]["contents"])
+
+
+class TruncatingStub(BaseHTTPRequestHandler):
+    """First call: truncated JSON with MAX_TOKENS; second call: complete."""
+
+    calls = 0
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers["Content-Length"]))
+        TruncatingStub.calls += 1
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        if TruncatingStub.calls == 1:
+            self.wfile.write(json.dumps({"candidates": [{
+                "finishReason": "MAX_TOKENS",
+                "content": {"parts": [{"text": '{"observed_signal": "cut off mid str'}]},
+            }]}).encode())
+        else:
+            self.wfile.write(SUCCESS_REPLY.encode())
+
+
+def test_truncated_reply_is_retried_with_a_larger_budget(api_server, monkeypatch):
+    TruncatingStub.calls = 0
+    server = _stub_server(monkeypatch, TruncatingStub)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    try:
+        res = requests.post(f"{api_server}/api/explain-change", json=VALID_BODY, timeout=10)
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert res.status_code == 200
+    assert res.json()["explanation"]["observedSignal"] == "Signal recorded."
+    assert TruncatingStub.calls == 2  # one truncation, one automatic retry

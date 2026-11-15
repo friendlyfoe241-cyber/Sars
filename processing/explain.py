@@ -179,59 +179,79 @@ def explain(body: dict) -> dict:
     base = os.environ.get("GEMINI_API_BASE",
                           "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
 
-    payload = json.dumps({
-        "systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTION}]},
-        "contents": [{"role": "user", "parts": [{"text": json.dumps(_facts(body), indent=2)}]}],
-        "generationConfig": {
-            # Thinking models count their reasoning toward the output budget;
-            # a too-small budget truncates the JSON mid-string.
-            "temperature": 0.3,
-            "maxOutputTokens": 2048,
-            "responseMimeType": "application/json",
-            "responseSchema": RESPONSE_SCHEMA,
-        },
-    }).encode()
+    prompt_text = json.dumps(_facts(body), indent=2)
+
+    def _request_payload(max_tokens: int) -> bytes:
+        return json.dumps({
+            "systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTION}]},
+            "contents": [{"role": "user", "parts": [{"text": prompt_text}]}],
+            "generationConfig": {
+                # Thinking is disabled: reasoning tokens count toward
+                # maxOutputTokens, and on richer prompts they can consume the
+                # whole budget before any JSON is written (truncated reply).
+                # This task is a short structured summary and needs no
+                # reasoning budget (verified against the live API).
+                "temperature": 0.3,
+                "maxOutputTokens": max_tokens,
+                "thinkingConfig": {"thinkingBudget": 0},
+                "responseMimeType": "application/json",
+                "responseSchema": RESPONSE_SCHEMA,
+            },
+        }).encode()
 
     last_status, last_detail = 0, ""
-    reply, model = None, None
+    truncated = False
+    obj = None
+    model = None
     for candidate in _model_candidates():
-        request = urllib.request.Request(
-            f"{base}/models/{candidate}:generateContent?key={api_key}",
-            data=payload, headers={"Content-Type": "application/json"}, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=25) as res:
-                reply = json.loads(res.read())
+        # A truncated reply gets one automatic retry with a doubled budget
+        # before the next model is tried.
+        for attempt in range(2):
+            max_tokens = 2048 if attempt == 0 else 4096
+            request = urllib.request.Request(
+                f"{base}/models/{candidate}:generateContent?key={api_key}",
+                data=_request_payload(max_tokens),
+                headers={"Content-Type": "application/json"}, method="POST")
+            try:
+                with urllib.request.urlopen(request, timeout=25) as res:
+                    reply = json.loads(res.read())
+            except urllib.error.HTTPError as exc:
+                detail = _error_detail(exc)
+                if exc.code == 404:
+                    # Retired or unknown model id: try the next candidate.
+                    last_status, last_detail = exc.code, detail
+                    truncated = False
+                    break
+                raise _service_error(exc.code, detail)
+            except (urllib.error.URLError, TimeoutError, ValueError):
+                raise ExplainError(502, "The explanation service could not be reached.")
+
+            text, finish_reason = "", ""
+            candidates = reply.get("candidates") or []
+            if candidates:
+                finish_reason = candidates[0].get("finishReason", "")
+                parts = (candidates[0].get("content") or {}).get("parts") or []
+                if parts:
+                    text = parts[0].get("text", "") or ""
+            if not text:
+                raise ExplainError(502, "The explanation service returned an empty response.")
+            try:
+                obj = json.loads(_strip_fences(text))
+            except ValueError:
+                if finish_reason == "MAX_TOKENS":
+                    truncated = True
+                    continue  # retry with the doubled budget, then the next model
+                raise ExplainError(502, "The explanation service returned an unreadable "
+                                       "response.")
             model = candidate
             break
-        except urllib.error.HTTPError as exc:
-            detail = _error_detail(exc)
-            if exc.code == 404:
-                # Retired or unknown model id: try the next candidate.
-                last_status, last_detail = exc.code, detail
-                continue
-            raise _service_error(exc.code, detail)
-        except (urllib.error.URLError, TimeoutError, ValueError):
-            raise ExplainError(502, "The explanation service could not be reached.")
-    if reply is None:
-        raise _service_error(last_status or 404, last_detail)
-
-    text = ""
-    finish_reason = ""
-    candidates = reply.get("candidates") or []
-    if candidates:
-        finish_reason = candidates[0].get("finishReason", "")
-        parts = (candidates[0].get("content") or {}).get("parts") or []
-        if parts:
-            text = parts[0].get("text", "") or ""
-    if not text:
-        raise ExplainError(502, "The explanation service returned an empty response.")
-    try:
-        obj = json.loads(_strip_fences(text))
-    except ValueError:
-        if finish_reason == "MAX_TOKENS":
+        if obj is not None:
+            break
+    if obj is None:
+        if truncated:
             raise ExplainError(502, "The explanation was cut off by the model's response "
                                    "budget; try again.")
-        raise ExplainError(502, "The explanation service returned an unreadable response.")
+        raise _service_error(last_status or 404, last_detail)
 
     def pick(key):
         value = obj.get(key)

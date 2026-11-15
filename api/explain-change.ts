@@ -27,6 +27,7 @@ interface Explanation {
 }
 
 const MAX_TEXT = 4000;
+const MAX_OUTPUT_TOKENS = 2048;
 
 function apiBase(): string {
   return process.env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com/v1beta";
@@ -164,102 +165,117 @@ async function callGemini(prompt: string): Promise<{ explanation: Explanation; m
 
   let lastStatus = 0;
   let lastDetail = "";
+  let truncated = false;
   for (const candidate of modelCandidates()) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 25000);
-    let res: Response;
-    try {
-      res = await fetch(
-        `${apiBase()}/models/${candidate}:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            generationConfig: {
-              // Thinking models count their reasoning toward the output
-              // budget; a too-small budget truncates the JSON mid-string.
-              temperature: 0.3,
-              maxOutputTokens: 2048,
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: "object",
-                properties: {
-                  observed_signal: { type: "string" },
-                  possible_interpretation: { type: "string" },
-                  supporting_evidence: { type: "string" },
-                  limitations: { type: "string" },
-                  recommended_next_investigation: { type: "string" },
+    // A truncated reply gets one automatic retry with a doubled budget before
+    // the next model is tried.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const maxTokens = attempt === 0 ? MAX_OUTPUT_TOKENS : MAX_OUTPUT_TOKENS * 2;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 25000);
+      let res: Response;
+      try {
+        res = await fetch(
+          `${apiBase()}/models/${candidate}:generateContent?key=${encodeURIComponent(apiKey)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              generationConfig: {
+                // Thinking is disabled: reasoning tokens count toward
+                // maxOutputTokens, and on richer prompts they can consume the
+                // whole budget before any JSON is written (truncated reply).
+                // This task is a short structured summary and needs no
+                // reasoning budget (verified against the live API).
+                temperature: 0.3,
+                maxOutputTokens: maxTokens,
+                thinkingConfig: { thinkingBudget: 0 },
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: "object",
+                  properties: {
+                    observed_signal: { type: "string" },
+                    possible_interpretation: { type: "string" },
+                    supporting_evidence: { type: "string" },
+                    limitations: { type: "string" },
+                    recommended_next_investigation: { type: "string" },
+                  },
+                  required: [
+                    "observed_signal",
+                    "possible_interpretation",
+                    "supporting_evidence",
+                    "limitations",
+                    "recommended_next_investigation",
+                  ],
                 },
-                required: [
-                  "observed_signal",
-                  "possible_interpretation",
-                  "supporting_evidence",
-                  "limitations",
-                  "recommended_next_investigation",
-                ],
               },
-            },
-          }),
-        },
-      );
-    } catch {
-      throw Object.assign(new Error("The explanation service could not be reached."), {
-        status: 502,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if (!res.ok) {
-      const detail = await geminiErrorMessage(res);
-      if (res.status === 404) {
-        // Retired or unknown model id: try the next candidate.
-        lastStatus = res.status;
-        lastDetail = detail;
-        continue;
-      }
-      throw serviceError(res.status, detail);
-    }
-
-    const payload = (await res.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
-    };
-    const candidate0 = payload.candidates?.[0];
-    const text = candidate0?.content?.parts?.[0]?.text;
-    if (!text) {
-      throw Object.assign(new Error("The explanation service returned an empty response."), {
-        status: 502,
-      });
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(stripFences(text));
-    } catch {
-      if (candidate0?.finishReason === "MAX_TOKENS") {
-        throw Object.assign(
-          new Error("The explanation was cut off by the model's response budget; try again."),
-          { status: 502 },
+            }),
+          },
         );
+      } catch {
+        throw Object.assign(new Error("The explanation service could not be reached."), {
+          status: 502,
+        });
+      } finally {
+        clearTimeout(timer);
       }
-      throw Object.assign(new Error("The explanation service returned an unreadable response."), {
-        status: 502,
-      });
+
+      if (!res.ok) {
+        const detail = await geminiErrorMessage(res);
+        if (res.status === 404) {
+          // Retired or unknown model id: try the next candidate.
+          lastStatus = res.status;
+          lastDetail = detail;
+          truncated = false;
+          break;
+        }
+        throw serviceError(res.status, detail);
+      }
+
+      const payload = (await res.json()) as {
+        candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+      };
+      const candidate0 = payload.candidates?.[0];
+      const text = candidate0?.content?.parts?.[0]?.text;
+      if (!text) {
+        throw Object.assign(new Error("The explanation service returned an empty response."), {
+          status: 502,
+        });
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(stripFences(text));
+      } catch {
+        if (candidate0?.finishReason === "MAX_TOKENS") {
+          truncated = true;
+          continue; // retry with the doubled budget, then the next model
+        }
+        throw Object.assign(new Error("The explanation service returned an unreadable response."), {
+          status: 502,
+        });
+      }
+      const obj = parsed as Record<string, unknown>;
+      return {
+        explanation: {
+          observedSignal: str(obj.observed_signal, MAX_TEXT) ?? "",
+          possibleIndication: str(obj.possible_interpretation, MAX_TEXT) ?? "",
+          supportingEvidence: str(obj.supporting_evidence, MAX_TEXT) ?? "",
+          limitations: str(obj.limitations, MAX_TEXT) ?? "",
+          recommendedNextInvestigation: str(obj.recommended_next_investigation, MAX_TEXT) ?? "",
+        },
+        model: candidate,
+      };
     }
-    const obj = parsed as Record<string, unknown>;
-    return {
-      explanation: {
-        observedSignal: str(obj.observed_signal, MAX_TEXT) ?? "",
-        possibleIndication: str(obj.possible_interpretation, MAX_TEXT) ?? "",
-        supportingEvidence: str(obj.supporting_evidence, MAX_TEXT) ?? "",
-        limitations: str(obj.limitations, MAX_TEXT) ?? "",
-        recommendedNextInvestigation: str(obj.recommended_next_investigation, MAX_TEXT) ?? "",
-      },
-      model: candidate,
-    };
+  }
+  if (truncated) {
+    throw Object.assign(
+      new Error("The explanation was cut off by the model's response budget; try again."),
+      { status: 502 },
+    );
   }
   throw serviceError(lastStatus || 404, lastDetail);
 }

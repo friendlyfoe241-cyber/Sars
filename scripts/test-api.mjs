@@ -133,6 +133,8 @@ check(
   "Gemini request carries the calibrated analysis facts",
   JSON.stringify(captured?.body?.contents ?? "").includes("candidateChangedAreaKm2") &&
     JSON.stringify(captured?.body?.contents ?? "").includes("meanChangeDb"),
+  // thinking must stay disabled (its tokens count toward maxOutputTokens)
+  captured?.body?.generationConfig?.thinkingConfig?.thinkingBudget === 0,
   "analysis facts missing from prompt",
 );
 mock.close();
