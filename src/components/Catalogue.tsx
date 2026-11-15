@@ -2,7 +2,7 @@ import { memo, useMemo, useState } from "react";
 import { Section } from "./ui";
 import { formatDate } from "../lib/data";
 import type { NisarScene } from "../lib/discovery";
-import { compatibilityLabel, pairIssues, type ScenePair } from "../lib/pairing";
+import { compatibilityLabel, isReversed, pairIssues, type ScenePair } from "../lib/pairing";
 import { scenePairId } from "../lib/selection";
 
 function sceneLabel(s: NisarScene): string {
@@ -15,6 +15,9 @@ function sceneLabel(s: NisarScene): string {
     .filter(Boolean)
     .join(" · ");
 }
+
+const REVERSED_NOTE =
+  "Before is later than After. They will be swapped when you compare, so the change always runs forward in time.";
 
 export function DateFilter({
   dateFrom,
@@ -29,6 +32,7 @@ export function DateFilter({
 }) {
   const [from, setFrom] = useState(dateFrom);
   const [to, setTo] = useState(dateTo);
+  const [swapped, setSwapped] = useState(false);
   return (
     <Section
       title="Date filter"
@@ -42,6 +46,14 @@ export function DateFilter({
         className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] items-end gap-2"
         onSubmit={(e) => {
           e.preventDefault();
+          if (from && to && from > to) {
+            setFrom(to);
+            setTo(from);
+            setSwapped(true);
+            onApply(to, from);
+            return;
+          }
+          setSwapped(false);
           onApply(from, to);
         }}
       >
@@ -53,7 +65,10 @@ export function DateFilter({
             id="vx-from"
             type="date"
             value={from}
-            onChange={(e) => setFrom(e.target.value)}
+            onChange={(e) => {
+                  setFrom(e.target.value);
+                  setSwapped(false);
+                }}
             className="vx-input vx-mono !px-2"
           />
         </div>
@@ -65,7 +80,10 @@ export function DateFilter({
             id="vx-to"
             type="date"
             value={to}
-            onChange={(e) => setTo(e.target.value)}
+            onChange={(e) => {
+                  setTo(e.target.value);
+                  setSwapped(false);
+                }}
             className="vx-input vx-mono !px-2"
           />
         </div>
@@ -73,6 +91,11 @@ export function DateFilter({
           Apply and search again
         </button>
       </form>
+      {swapped && (
+        <p className="vx-note mt-2" role="status">
+          From was later than To, so the two dates were swapped: searching {from} to {to}.
+        </p>
+      )}
     </Section>
   );
 }
@@ -201,6 +224,11 @@ export function ManualPair({
         {select("before", roleBefore)}
         {select("after", roleAfter)}
       </div>
+      {before && after && issues.length === 0 && isReversed(before, after) && (
+        <p className="vx-note mt-3" role="status">
+          {REVERSED_NOTE}
+        </p>
+      )}
       {before && after && issues.length > 0 && (
         <p className="vx-note mt-3" role="status">
           Not compatible: {issues.map((i) => `${i.field} (${i.before} ≠ ${i.after})`).join(", ")}. These two
@@ -254,6 +282,12 @@ export function PairSummary({
           observations cannot be compared for change.
         </p>
       ) : before && after ? (
+        <>
+        {isReversed(before, after) && (
+          <p className="vx-note mt-2" role="status">
+            {REVERSED_NOTE}
+          </p>
+        )}
         <button
           type="button"
           onClick={() => onLoadPair(before.id, after.id)}
@@ -261,6 +295,7 @@ export function PairSummary({
         >
           Compare
         </button>
+        </>
       ) : (
         <p className="vx-note mt-2">Mark one scene as Before and a later one as After in the table.</p>
       )}

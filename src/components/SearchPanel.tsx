@@ -45,6 +45,7 @@ export default function SearchPanel({
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState(dateFrom);
   const [to, setTo] = useState(dateTo);
+  const [swapped, setSwapped] = useState(false);
   return (
     <>
       <Section title="Location">
@@ -158,6 +159,14 @@ export default function SearchPanel({
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            if (from && to && from > to) {
+              setFrom(to);
+              setTo(from);
+              setSwapped(true);
+              onSearchData(to, from);
+              return;
+            }
+            setSwapped(false);
             onSearchData(from, to);
           }}
         >
@@ -170,7 +179,10 @@ export default function SearchPanel({
                 id="vx-search-from"
                 type="date"
                 value={from}
-                onChange={(e) => setFrom(e.target.value)}
+                onChange={(e) => {
+                  setFrom(e.target.value);
+                  setSwapped(false);
+                }}
                 className="vx-input vx-mono !px-2"
               />
             </div>
@@ -182,7 +194,10 @@ export default function SearchPanel({
                 id="vx-search-to"
                 type="date"
                 value={to}
-                onChange={(e) => setTo(e.target.value)}
+                onChange={(e) => {
+                  setTo(e.target.value);
+                  setSwapped(false);
+                }}
                 className="vx-input vx-mono !px-2"
               />
             </div>
@@ -196,6 +211,11 @@ export default function SearchPanel({
             {searching ? "Searching NISAR data…" : "Search NISAR data"}
           </button>
         </form>
+        {swapped && (
+          <p className="vx-note mt-2" role="status">
+            From was later than To, so the two dates were swapped: searching {from} to {to}.
+          </p>
+        )}
         {!aoi && <p className="vx-note mt-2">Choose an area first.</p>}
       </Section>
     </>

@@ -60,7 +60,7 @@ import {
 } from "./lib/data";
 import { searchNisarGcov, type NisarScene } from "./lib/discovery";
 import { geocodePlace } from "./lib/geocode";
-import { findCompatiblePairs, type ScenePair } from "./lib/pairing";
+import { chronological, findCompatiblePairs, type ScenePair } from "./lib/pairing";
 import {
   PAIR_LOAD_RETRY_MESSAGE,
   buildPairDataset,
@@ -487,8 +487,9 @@ export default function App() {
   );
 
   const loadPair = useCallback(
-    async (before: NisarScene, after: NisarScene) => {
+    async (first: NisarScene, second: NisarScene) => {
       if (!aoi) return;
+      const [before, after] = chronological(first, second);
       const key = pairKey({
         aoi,
         beforeId: before.id,
@@ -564,19 +565,24 @@ export default function App() {
 
   const handleLoadPair = useCallback(
     (beforeId: string, afterId: string) => {
-      const before = scenes.find((s) => s.id === beforeId);
-      const after = scenes.find((s) => s.id === afterId);
-      if (before && after) void loadPair(before, after);
+      const first = scenes.find((s) => s.id === beforeId);
+      const second = scenes.find((s) => s.id === afterId);
+      if (!first || !second) return;
+      const [before, after] = chronological(first, second);
+      setRoleBefore(before.id);
+      setRoleAfter(after.id);
+      void loadPair(before, after);
     },
     [scenes, loadPair],
   );
 
   const handleLoadSuggested = useCallback(
     (pair: ScenePair) => {
-      setRoleBefore(pair.before.id);
-      setRoleAfter(pair.after.id);
-      setSelectedSceneId(pair.after.id);
-      void loadPair(pair.before, pair.after);
+      const [before, after] = chronological(pair.before, pair.after);
+      setRoleBefore(before.id);
+      setRoleAfter(after.id);
+      setSelectedSceneId(after.id);
+      void loadPair(before, after);
     },
     [loadPair],
   );

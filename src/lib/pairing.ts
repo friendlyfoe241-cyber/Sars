@@ -42,6 +42,14 @@ export function compatibilityLabel(scene: NisarScene): string {
   ].join(" · ");
 }
 
+export function isReversed(before: NisarScene, after: NisarScene): boolean {
+  return Date.parse(before.startTime) > Date.parse(after.startTime);
+}
+
+export function chronological(a: NisarScene, b: NisarScene): [NisarScene, NisarScene] {
+  return isReversed(a, b) ? [b, a] : [a, b];
+}
+
 export function pairIssues(a: NisarScene, b: NisarScene): PairIssue[] {
   const issues: PairIssue[] = [];
   const compare = (
