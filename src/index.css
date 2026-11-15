@@ -321,6 +321,9 @@
 .vx-hero__bob {
   animation: hero-bob 7s ease-in-out infinite;
 }
+.vx-hero__spin {
+  transition: transform 820ms cubic-bezier(0.16, 1, 0.3, 1);
+}
 .vx-hero__dock-row {
   position: relative;
   z-index: 3;
@@ -342,5 +345,8 @@
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+  .vx-hero__spin {
+    transform: none !important;
   }
 }

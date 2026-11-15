@@ -15,6 +15,10 @@ export default function Hero({
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<number | null>(null);
+  const [spin, setSpin] = useState(0);
+  const hoverRef = useRef<number | null>(null);
+  const lastRef = useRef<number | null>(null);
+  const quietRef = useRef(false);
   const [W, setW] = useState(() => window.innerWidth);
 
   useEffect(() => {
@@ -36,10 +40,30 @@ export default function Hero({
   useEffect(() => {
     const ae = document.activeElement;
     if (intro && ae && ae !== document.body) return;
+    quietRef.current = true;
     rootRef.current
       ?.querySelector<HTMLButtonElement>("nav[aria-label='Command'] button")
       ?.focus({ preventScroll: true });
+    quietRef.current = false;
   }, [intro]);
+
+  const pick = (i: number) => {
+    const was = hoverRef.current;
+    hoverRef.current = i;
+    setHover(i);
+    if (was === i) return;
+    const last = lastRef.current;
+    lastRef.current = i;
+    if (quietRef.current) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const steps = last === null || last === i ? 1 : i - last;
+    setSpin((a) => a + steps * 52);
+  };
+
+  const leave = () => {
+    hoverRef.current = null;
+    setHover(null);
+  };
 
   const bw = W >= 720 ? 128 : W >= 360 ? 64 : 56;
   const hi = hover ?? 2;
@@ -80,7 +104,8 @@ export default function Hero({
                   height={1200}
                   fetchPriority="high"
                   decoding="async"
-                  className="relative block h-full w-full rounded-full"
+                  className="vx-hero__spin relative block h-full w-full rounded-full"
+                  style={{ transform: `rotate(${spin}deg)` }}
                   draggable={false}
                 />
                 <div
@@ -100,7 +125,7 @@ export default function Hero({
 
         <div className="vx-hero__dock-row pointer-events-none flex justify-center px-3">
           <Glass as="nav" aria-label="Command" className="vx-in-bottom vx-hero__dock pointer-events-auto rounded-full">
-            <div className="relative flex p-2" onMouseLeave={() => setHover(null)}>
+            <div className="relative flex p-2" onMouseLeave={leave}>
               <span
                 aria-hidden="true"
                 className="vx-hero__hover absolute rounded-full"
@@ -123,8 +148,8 @@ export default function Hero({
                   className="lg-btn relative flex flex-col items-center justify-center gap-1.5 rounded-full border-0 bg-transparent text-[14px]"
                   style={{ width: bw, minHeight: 64, color: hover === i ? "#fff" : "#D9DEE5" }}
                   aria-label={`Open ${s.label}`}
-                  onMouseEnter={() => setHover(i)}
-                  onFocus={() => setHover(i)}
+                  onMouseEnter={() => pick(i)}
+                  onFocus={() => pick(i)}
                   onClick={() => onEnter(s.id)}
                 >
                   <StepIcon id={s.id} />
