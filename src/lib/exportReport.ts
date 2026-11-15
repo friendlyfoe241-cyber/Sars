@@ -1,4 +1,5 @@
 import type { AnalysisResult } from "./analysisApi";
+import { directionWord, analysisDirection, finite, methodLabel, neutralText, thresholdText } from "./analysisWording";
 import type { PairStats } from "./usePairStats";
 
 export interface ReportInput {
@@ -81,13 +82,46 @@ export function reportJson(input: ReportInput): string {
 }
 
 function htmlEscape(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function n(value: unknown, digits: number, suffix = ""): string {
+  return finite(value) ? `${value.toFixed(digits)}${suffix}` : "Not available";
+}
+
+function quicklookTable(input: ReportInput): string {
+  const stats = input.pairStats;
+  if (!stats || stats.channels.length === 0) return "";
+  const unit = htmlEscape(stats.unit);
+  const rows = stats.channels
+    .map((ch) => {
+      const c = stats.byChannel[ch]?.change;
+      if (!c) return "";
+      return `<tr><td>${htmlEscape(ch)}</td><td>${n(c.mean, 2)}</td><td>${n(c.median, 2)}</td><td>${n(c.p25, 2)} to ${n(c.p75, 2)}</td><td>${n(c.validFraction * 100, 1, "%")}</td></tr>`;
+    })
+    .join("");
+  return `<h2>Quicklook display-DN statistics (after − before, computed in the browser)</h2>
+<table class="grid"><tr><th>Channel</th><th>Mean (${unit})</th><th>Median (${unit})</th><th>Interquartile range (${unit})</th><th>Valid pixels</th></tr>${rows}</table>
+<p class="note">Differences of 8-bit browse quicklook display values (display DN), not calibrated backscatter. The sign shows darker or brighter; the size is not a calibrated measurement.</p>`;
 }
 
 function kvTable(rows: [string, string][]): string {
   return `<table>${rows
     .map(([k, v]) => `<tr><th>${htmlEscape(k)}</th><td>${htmlEscape(v)}</td></tr>`)
     .join("")}</table>`;
+}
+
+function statsSourceNote(input: ReportInput): string {
+  const parts: string[] = [];
+  if (input.pairStats) parts.push("quicklook display-DN statistics computed in the browser from ASF browse images");
+  if (input.analysis) parts.push("calibrated gamma-0 (dB) statistics from the nisar_change processing pipeline");
+  if (parts.length === 0) return "No statistics were available when this report was generated.";
+  const text = parts.join("; and ");
+  return `Statistics in this report: ${text}.${input.analysis ? "" : " No calibrated analysis was run, so no calibrated values are included."}`;
 }
 
 export function reportHtml(input: ReportInput): string {
@@ -113,36 +147,42 @@ export function reportHtml(input: ReportInput): string {
       ["Orbit / track / frame",
         `${a.observations.before.orbit_direction.toLowerCase()} / ${a.observations.before.track} / ${a.observations.before.frame}`],
     ]));
-    sections.push("<h2>Calculated results</h2>");
+    sections.push("<h2>Calibrated results (processing pipeline)</h2>");
     sections.push(kvTable([
-      ["Analysis method", a.processing.eventMethod],
-      ["Threshold / direction",
-        `${a.processing.methodParameters.change_db} dB · ${a.processing.methodParameters.direction}`],
-      ["Valid analysed area", `${a.areaEstimates.valid_analysed_area_km2} km²`],
+      ["Analysis method", methodLabel(a.processing?.eventMethod)],
+      ["Threshold / direction", `${thresholdText(a)} · ${directionWord(analysisDirection(a))}`],
+      ["Valid analysed area", n(a.areaEstimates?.valid_analysed_area_km2, 3, " km²")],
       ["Candidate changed area",
-        `${a.areaEstimates.candidate_changed_area_km2} km² (${a.areaEstimates.candidate_changed_area_hectares} ha)`],
-      ["Candidate changed (valid area)",
-        `${a.areaEstimates.candidate_changed_percent_of_valid}%`],
-      ["Valid pixels", String(a.areaEstimates.valid_pixels)],
-      ["Mean change", `${a.statistics.mean_difference_db?.toFixed(3)} dB`],
-      ["Median change", `${a.statistics.median_difference_db?.toFixed(3)} dB`],
+        `${n(a.areaEstimates?.candidate_changed_area_km2, 4, " km²")} (${n(a.areaEstimates?.candidate_changed_area_hectares, 2, " ha")})`],
+      ["Candidate changed (valid area)", n(a.areaEstimates?.candidate_changed_percent_of_valid, 3, "%")],
+      ["Valid pixels", finite(a.areaEstimates?.valid_pixels) ? String(a.areaEstimates.valid_pixels) : "Not available"],
+      ["Mean change (gamma-0)", n(a.statistics?.mean_difference_db, 3, " dB")],
+      ["Median change (gamma-0)", n(a.statistics?.median_difference_db, 3, " dB")],
       ["Quality (valid fraction)",
-        `${(a.processing.quality.validFraction * 100).toFixed(1)}%`],
+        finite(a.processing?.quality?.validFraction) ? `${(a.processing.quality.validFraction * 100).toFixed(1)}%` : "Not available"],
     ]));
-    sections.push(`<p class="note">${htmlEscape(a.areaEstimates.note)}</p>`);
+    sections.push(`<p class="note">${htmlEscape(neutralText(a.areaEstimates?.note))} A change in backscatter can have several causes; this analysis does not identify which, and nothing here is confirmed.</p>`);
   }
+
+  sections.push(quicklookTable(input));
 
   if (input.images.before || input.images.after || input.images.change) {
     sections.push("<h2>Raster views</h2><div class=\"imgs\">");
+    const captions: Record<string, string> = {
+      before: "Before · browse quicklook, display DN (not calibrated)",
+      after: "After · browse quicklook, display DN (not calibrated)",
+      change: "Change (after − before) · display DN difference (not calibrated)",
+    };
     for (const [name, src] of Object.entries(input.images)) {
-      if (src) sections.push(`<figure><img src="${src}" alt="${name}"/><figcaption>${name}</figcaption></figure>`);
+      if (src) {
+        const caption = captions[name] ?? name;
+        sections.push(`<figure><img src="${htmlEscape(src)}" alt="${htmlEscape(caption)}"/><figcaption>${htmlEscape(caption)}</figcaption></figure>`);
+      }
     }
     sections.push("</div>");
-    if (!a) {
-      sections.push(
-        `<p class="note">Raster views are ASF browse quicklook renderings (display DN), not calibrated backscatter.</p>`,
-      );
-    }
+    sections.push(
+      `<p class="note">These images are browse quicklook renderings in 8-bit display DN, not calibrated backscatter, even when calibrated statistics appear above.</p>`,
+    );
   }
 
   if (input.aiText) {
@@ -155,7 +195,7 @@ export function reportHtml(input: ReportInput): string {
   sections.push(`<ul>${input.limitations.map((l) => `<li>${htmlEscape(l)}</li>`).join("")}</ul>`);
   sections.push(
     `<p class="note">Data sources: NASA/ASF NISAR L2 GCOV products (via ASF Search API, NASA CMR and NASA Harmony). ` +
-    `Statistics computed by the nisar_change processing pipeline.</p>`,
+    `${statsSourceNote(input)}</p>`,
   );
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(input.title)}</title>
@@ -167,6 +207,7 @@ export function reportHtml(input: ReportInput): string {
  td{padding:4px 0;vertical-align:top}
  .note{color:#737373;font-size:12px}
  .imgs{display:flex;gap:12px;flex-wrap:wrap}
+ table.grid th,table.grid td{border-bottom:1px solid #e5e7eb;padding:4px 8px;width:auto}
  figure{margin:0} img{max-width:250px;border:1px solid #e5e7eb} figcaption{font-size:11px;color:#737373}
 </style></head><body>${sections.join("\n")}</body></html>`;
 }
@@ -177,6 +218,12 @@ export function downloadFile(name: string, content: string | Blob, mime: string)
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 1500);
 }

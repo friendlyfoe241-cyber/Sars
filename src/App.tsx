@@ -1188,7 +1188,7 @@ export default function App() {
                   locationLabel={locationLabel}
                 />
               </DisclosureSection>
-              <DisclosureSection title="Export results" summary="JSON · CSV · report">
+              <DisclosureSection title="Export results" summary="JSON · CSV · HTML">
                 <div className="flex flex-wrap gap-2 px-1 pb-2">
                   <button
                     type="button"
@@ -1209,12 +1209,13 @@ export default function App() {
                     className="vx-button vx-button--ghost vx-button--compact"
                     onClick={() => void handleExport("report")}
                   >
-                    <FileText size={14} aria-hidden /> Report (print to PDF)
+                    <FileText size={14} aria-hidden /> HTML report
                   </button>
                 </div>
                 <p className="vx-note px-1">
                   Exports contain the displayed statistics, the calibrated analysis results when
-                  one has run, and the AI interpretation clearly labelled as generated.
+                  one has run, and the AI interpretation clearly labelled as generated. The HTML
+                  report downloads as a file you can open in a browser and print to PDF.
                 </p>
               </DisclosureSection>
             </Panel>
