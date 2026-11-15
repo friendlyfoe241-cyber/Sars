@@ -93,8 +93,8 @@ function ResultBody({ result }: { result: AnalysisResult }) {
         : "got stronger";
   return (
     <>
-      <div className="vx-notice" data-tone="info">
-        <h4>In plain words</h4>
+          <div className="vx-notice" data-tone="info" style={{ display: "block" }}>
+        <h4 className="mb-1">In plain words</h4>
         <p>
           About <strong>{pct.toFixed(1)}%</strong> of the area we could measure (
           <strong>{formatPlain(a.candidate_changed_area_km2)} km²</strong>) showed a clear drop in radar
