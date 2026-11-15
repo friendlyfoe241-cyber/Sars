@@ -17,6 +17,7 @@ import { changeLabel, methodLabel, neutralResult } from "./lib/analysisWording";
 import { downloadFile, reportCsv, reportHtml, reportJson, type ReportInput } from "./lib/exportReport";
 import { DateFilter, ManualPair, PairSummary, SuggestedPairs } from "./components/Catalogue";
 import ComparePanel from "./components/ComparePanel";
+import ErrorBoundary from "./components/ErrorBoundary";
 import MapStage from "./components/MapStage";
 import MapView from "./components/MapView";
 import ObservationsTable from "./components/ObservationsTable";
@@ -1148,13 +1149,15 @@ export default function App() {
           <div className="vx-page__content">
             <Panel area="ai">
               {viewState.kind === "no-valid-pixels" && notice("explain")}
-              <AnalysisPanel
-                state={analysis}
-                polarisation={channel}
-                beforeDate={formatDate(viewState.dataset.viewer.earlier.startTime)}
-                afterDate={formatDate(viewState.dataset.viewer.later.startTime)}
-                onRun={handleRunAnalysis}
-              />
+              <ErrorBoundary key={currentSelectionKey ?? "none"} compact title="The calibrated analysis could not be shown">
+                <AnalysisPanel
+                  state={analysis}
+                  polarisation={channel}
+                  beforeDate={formatDate(viewState.dataset.viewer.earlier.startTime)}
+                  afterDate={formatDate(viewState.dataset.viewer.later.startTime)}
+                  onRun={handleRunAnalysis}
+                />
+              </ErrorBoundary>
               <StatsPanel
                 dataset={viewState.dataset.viewer}
                 pol={channel}
@@ -1263,7 +1266,7 @@ export default function App() {
           )}
         </div>
         {map && <div className="vx-page__map" data-map-slot={current ? "" : undefined} />}
-        {pageBody(id)}
+        <ErrorBoundary key={id}>{pageBody(id)}</ErrorBoundary>
       </div>
     );
   };
