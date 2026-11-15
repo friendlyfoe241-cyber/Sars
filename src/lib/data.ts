@@ -1,25 +1,14 @@
-// Types and loaders for datasets shown in the viewer.
-//
-// Two raster sources feed the same viewer model:
-//   1. a prepared local dataset (public/data/manifest.json, produced by the
-//      scripts in scripts/) — the shipped example and the calibrated path;
-//   2. dynamic pairs built in the browser from discovered NISAR scenes
-//      (src/lib/rasterSource.ts).
-// The viewer only ever sees ViewerDataset + rasters, so rendering, change
-// statistics and the Gemini feature are shared unchanged.
-
 export type DatasetStatus = "nisar_quicklook" | "nisar_calibrated" | "demo";
 
 export type RasterAvailability =
-  | "calibrated" // calibrated raster prepared and ready
-  | "quicklook" // public quicklook rendering ready
-  | "metadata-only"; // catalogue metadata only, raster not prepared
+  | "calibrated"
+  | "quicklook"
+  | "metadata-only";
 
 export interface RasterEncoding {
   type: "quicklook_dn" | "db_linear";
   unit: string;
   nodata: number;
-  /** only for db_linear: DN 1..255 maps linearly onto [dbMin, dbMax] */
   dbMin?: number;
   dbMax?: number;
   description: string;
@@ -40,7 +29,6 @@ export interface Acquisition {
   crid: string | null;
 }
 
-/** What the viewer components need to know about the loaded observation pair. */
 export interface ViewerDataset {
   status: DatasetStatus;
   availability: RasterAvailability;
@@ -52,7 +40,6 @@ export interface ViewerDataset {
   polarisations: string[];
   layers: Record<string, string>;
   encoding: RasterEncoding;
-  /** unit of the change layer; its colour-scale saturation is per channel (see ChannelRasters) */
   changeScale: { unit: string };
   earlier: Acquisition;
   later: Acquisition;
@@ -114,10 +101,8 @@ export interface Manifest {
   >;
 }
 
-/** Prepared dataset reference: a locally prepared pair and its raster window. */
 export interface PreparedDataset {
   manifest: Manifest;
-  /** product IDs of the prepared pair */
   beforeId: string;
   afterId: string;
 }
@@ -139,7 +124,6 @@ const MONTHS = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
-/** Deterministic UTC formatting: "25 Oct 2026, 03:42 UTC". */
 export function formatAcquisitionTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -150,7 +134,6 @@ export function formatAcquisitionTime(iso: string): string {
   );
 }
 
-/** Short date form: "25 Oct 2026". */
 export function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -190,7 +173,6 @@ export function availabilityLabel(availability: RasterAvailability): string {
   }
 }
 
-/** Layer label for a polarisation channel of a GCOV product. */
 export function layerLabel(pol: string): string {
   switch (pol) {
     case "HH":

@@ -1,7 +1,6 @@
 import { useId, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
-/** A labelled block inside a dock: mono eyebrow title, optional right slot. */
 export function Section({
   title,
   children,
@@ -22,10 +21,6 @@ export function Section({
   );
 }
 
-/**
- * A section whose body sits behind a disclosure header.  `defaultOpen` is the
- * initial state only; afterwards the user's choice wins.
- */
 export function DisclosureSection({
   title,
   summary,
@@ -33,7 +28,6 @@ export function DisclosureSection({
   children,
 }: {
   title: string;
-  /** short status shown on the header (e.g. "73 scenes") */
   summary?: ReactNode;
   defaultOpen?: boolean;
   children: ReactNode;
@@ -58,7 +52,6 @@ export function DisclosureSection({
   );
 }
 
-/** Key/value row: label cell (icon + text) left, value right-aligned. */
 export function KeyRow({
   icon,
   label,

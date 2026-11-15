@@ -1,8 +1,3 @@
-// Export the displayed investigation results: JSON (full structured data),
-// CSV (statistics tables) and a self-contained HTML report (printable to PDF).
-// Everything comes from what the application actually computed; nothing is
-// filled in from templates.
-
 import type { AnalysisResult } from "./analysisApi";
 import type { PairStats } from "./usePairStats";
 
@@ -13,7 +8,6 @@ export interface ReportInput {
   eventLabel: string;
   pairStats: PairStats | null;
   analysis: AnalysisResult | null;
-  /** data URLs of the displayed before/after/change rasters, if loaded */
   images: { before?: string; after?: string; change?: string };
   aiText: Record<string, string> | null;
   limitations: string[];
@@ -96,7 +90,6 @@ function kvTable(rows: [string, string][]): string {
     .join("")}</table>`;
 }
 
-/** Self-contained report page; the browser's Print → PDF produces the PDF. */
 export function reportHtml(input: ReportInput): string {
   const a = input.analysis;
   const sections: string[] = [];

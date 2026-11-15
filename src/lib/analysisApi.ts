@@ -1,13 +1,7 @@
-// Client for the local Python analysis API (processing/serve.py), which runs
-// the scientific pipeline: catalogue discovery, pair selection, authenticated
-// Harmony retrieval of calibrated GCOV data, dB change analysis and area
-// calculations.  The browser never sees credentials or raw products, only the
-// structured result and result-file downloads.
-
 export interface AnalysisRequest {
   bbox: [number, number, number, number];
   eventType: string;
-  beforeDate: string; // YYYY-MM-DD
+  beforeDate: string;
   afterDate: string;
   polarisation: string;
   thresholdDb?: number;
@@ -95,7 +89,6 @@ export interface AnalysisJob {
   analysisId: string;
   status: "queued" | "running" | "succeeded" | "failed";
   progress: string;
-  /** overall completion, 0-100 (monotonic on the worker) */
   percent?: number;
   result?: AnalysisResult;
   artifactsBase?: string;
@@ -108,13 +101,8 @@ export interface ServiceHealth {
   events: string[];
 }
 
-/** Same origin by default (the Python server hosts the app in production and
- * the Vite dev server proxies /api in development); VITE_ANALYSIS_API points
- * at a worker on another host (e.g. Vercel + remote pipeline). */
 const BASE = (import.meta.env.VITE_ANALYSIS_API as string | undefined) ?? "";
 
-/** Base URL of the analysis worker (also hosts /api/explain-change when the
- * frontend is served statically).  Empty = same origin. */
 export function analysisBase(): string {
   return BASE;
 }
@@ -169,8 +157,6 @@ export async function submitAnalysis(
   })) as { analysisId: string };
 }
 
-/** Warm the worker's download cache for a pair the user is looking at
- * (fire-and-forget: any failure is silent — Run remains the real path). */
 export async function prefetchAnalysis(request: AnalysisRequest): Promise<void> {
   try {
     await jsonFetch("/api/analyze/prefetch", {
@@ -179,7 +165,6 @@ export async function prefetchAnalysis(request: AnalysisRequest): Promise<void> 
       body: JSON.stringify(request),
     });
   } catch {
-    /* best-effort */
   }
 }
 
@@ -191,7 +176,6 @@ export function artifactUrl(analysisId: string, file: string): string {
   return `${BASE}/api/artifacts/${analysisId}/${file}`;
 }
 
-/** Poll until the job reaches a terminal state (or the signal aborts). */
 export async function waitForAnalysis(
   id: string,
   onUpdate?: (job: AnalysisJob) => void,
@@ -204,9 +188,6 @@ export async function waitForAnalysis(
       job = await getAnalysis(id, signal);
       failures = 0;
     } catch (err) {
-      // Tolerate transient network blips (worker restarts, brief connection
-      // loss) before giving up; a job the worker has forgotten is reported
-      // immediately.
       if (
         (err instanceof AnalysisError && err.code !== "unreachable") ||
         (err instanceof DOMException && err.name === "AbortError") ||

@@ -21,11 +21,9 @@ interface Presentation {
   icon: ReactNode;
   title: string;
   text: string;
-  /** error and loading states are announced to assistive technology */
   live?: "polite" | "assertive";
 }
 
-/** One themed presentation for every ViewState variant. */
 export function presentState(state: ViewState): Presentation {
   switch (state.kind) {
     case "choose-location":
@@ -118,7 +116,6 @@ export function presentState(state: ViewState): Presentation {
 
 interface StateNoticeProps {
   state: ViewState;
-  /** step this notice is rendered in */
   here: StepId;
   onNavigate: (step: StepId) => void;
   onRetrySearch: () => void;
@@ -126,7 +123,6 @@ interface StateNoticeProps {
   canRetryPair: boolean;
 }
 
-/** The call to action that moves the user on from this state, if any. */
 function actionFor(
   state: ViewState,
   here: StepId,

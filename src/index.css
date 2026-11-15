@@ -4,18 +4,11 @@
 @import "@fontsource/metamorphous/400.css";
 @import "@fontsource-variable/sora/wght.css";
 
-/* Vortex liquid-glass design: tokens, glass, primitives, Leaflet skin.
-   All in the `components` layer so Tailwind utilities can still override. */
 @import "./styles/glass.css" layer(components);
 @import "./styles/vortex.css" layer(components);
 @import "./styles/leaflet.css" layer(components);
 @import "./styles/instruments.css" layer(components);
 
-/*
- * Theme tokens.  The app-* names are the Vortex design handoff's; the vx-*
- * colours alias the runtime custom properties in styles/vortex.css so the
- * content components (tables, graph, notices) share one source.
- */
 @theme {
   --color-app-bg: #000000;
   --color-app-subtle: rgba(255, 255, 255, 0.06);
@@ -29,7 +22,6 @@
   --color-app-nebula: #9d74f0;
   --font-sans: "Sora Variable", "Sora", ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", sans-serif;
-  /* Sora everywhere; Metamorphous only under the hero (.vx-hero, below) */
   --font-display: "Sora Variable", "Sora", ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -73,8 +65,6 @@
     overflow: hidden;
   }
 
-  /* Headings and buttons use the display face: Sora in the workspace,
-     Metamorphous on the hero only (it is scoped there, not overridden). */
   h1,
   h2,
   h3,
@@ -95,7 +85,6 @@
     --font-display: "Metamorphous", "Sora Variable", serif;
     --vx-font-display: "Metamorphous", "Sora Variable", serif;
   }
-  /* Metamorphous has a single weight */
   .vx-hero :is(h1, h2, h3, button, .font-display) {
     font-weight: 400;
   }
@@ -123,16 +112,11 @@
     outline-offset: 2px;
   }
 
-  /* The indigo fill (#4F46E5) passes 6.3:1 behind white text; as text on
-     black it is too dark, so text and link uses switch to the lighter tone. */
   .text-app-accent {
     color: var(--color-app-flare);
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Keyframes                                                           */
-/* ------------------------------------------------------------------ */
 @keyframes lg-sheen {
   0% {
     transform: translateX(-45%);
@@ -160,7 +144,6 @@
     transform: translate(4vw, 3vh) scale(1.12);
   }
 }
-/* the globe floats DOWN from its resting place, never up towards the title */
 @keyframes hero-bob {
   0%,
   100% {
@@ -187,16 +170,8 @@
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Edge motion: one system for every surface                           */
-/* A surface enters from, and leaves towards, the screen edge it is    */
-/* docked to: a transform-only slide plus a fade, one duration, one    */
-/* easing, no overshoot.  --vx-travel-x / -y shorten the trip for a    */
-/* surface that should not cross the whole screen (default: its own   */
-/* size plus the 16px gutter, i.e. it starts just off the edge).       */
-/* ------------------------------------------------------------------ */
 :root {
-  --vx-dur: 280ms; /* keep in step with MOTION_MS (hooks/usePresence.ts) */
+  --vx-dur: 280ms;
   --vx-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 @keyframes vx-in-left {
@@ -235,10 +210,6 @@
     transform: translate3d(0, var(--vx-travel-y, calc(100% + 16px)), 0);
   }
 }
-/* Step pages swap sideways, direction by step order: the incoming page comes
-   in from the side its step lies on and the outgoing one leaves the other way.
-   The map stage enters with the page (it glides between pages by FLIP, see
-   MapStage.tsx). */
 @keyframes vx-page-in-next {
   from {
     opacity: 0;
@@ -315,15 +286,10 @@
 .vx-out-bottom {
   animation-name: vx-out-bottom;
 }
-/* The workspace is mounted under the hero from the first render: hold every
-   entrance while the hero is up so the surfaces slide in when it leaves. */
 .vx-shell[data-hero="true"] :is(.vx-in-left, .vx-in-right, .vx-in-top, .vx-in-bottom, .vx-page, .vx-stage):not(.vx-hero *) {
   animation: none;
 }
 
-/* Hero: the title comes from the top edge, the command dock rises from the
-   bottom edge, the globe rises behind them.  Leaving, the hero fades while
-   title and dock slide back out to their edges. */
 .vx-hero[data-leaving] {
   animation: vx-out-fade var(--vx-dur) var(--vx-ease) forwards;
   pointer-events: none;
@@ -339,10 +305,6 @@
   animation-delay: 40ms;
 }
 
-/* Hero layout: title row, globe stage, dock row.  The globe is positioned in
-   the stage only, so whatever the title does (wrapping, font loading, text
-   zoom) pushes the stage down instead of being overlapped.  The title paints
-   above the stage, so even the globe's soft glow passes behind the text. */
 .vx-hero__layout {
   position: relative;
   z-index: 1;
@@ -371,11 +333,7 @@
   min-height: 0;
   container-type: size;
   pointer-events: none;
-  /* space between the subtitle and the globe's top edge (> the float's
-     sideways tilt, so not even the tilted image box reaches the text) */
   --vx-globe-gap: clamp(20px, 3.5vh, 44px);
-  /* the stage is the free space between title and dock; the globe is larger
-     than it and runs on under the dock, where the hero crops it */
   --vx-globe-d: min(78cqw, 1120px, max(190cqh, 160px));
 }
 @media (max-width: 719px) {
@@ -401,7 +359,6 @@
 .vx-hero__dock {
   animation-delay: 120ms;
 }
-/* the hover indicator in the command dock slides between commands */
 .vx-hero__hover {
   transition:
     transform var(--vx-dur) var(--vx-ease),

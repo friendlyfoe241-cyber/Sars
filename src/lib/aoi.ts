@@ -1,6 +1,3 @@
-// Area-of-interest (AOI) handling: geographic rectangles used for catalogue
-// searches and raster preparation.  All coordinates are WGS84 lon/lat.
-
 export interface Aoi {
   west: number;
   south: number;
@@ -14,7 +11,6 @@ export function aoiCenter(aoi: Aoi): [number, number] {
   return [(aoi.south + aoi.north) / 2, (aoi.west + aoi.east) / 2];
 }
 
-/** AOI of `sizeKm` width/height centred on a point. */
 export function aoiFromCenter(lat: number, lon: number, sizeKm: number): Aoi {
   const dLat = sizeKm / 111.32 / 2;
   const dLon = sizeKm / (111.32 * Math.max(0.2, Math.cos((lat * Math.PI) / 180))) / 2;
@@ -55,13 +51,11 @@ export function isValidAoi(aoi: Aoi): boolean {
   );
 }
 
-/** WKT polygon for catalogue queries (closed ring). */
 export function aoiPolygon(aoi: Aoi): string {
   const { west: w, south: s, east: e, north: n } = aoi;
   return `POLYGON((${w} ${s},${e} ${s},${e} ${n},${w} ${n},${w} ${s}))`;
 }
 
-/** Bounding box string "w,s,e,n" (CMR style). */
 export function aoiBbox(aoi: Aoi): string {
   return `${aoi.west},${aoi.south},${aoi.east},${aoi.north}`;
 }
@@ -78,10 +72,6 @@ export function aoiSizeKm(aoi: Aoi): { widthKm: number; heightKm: number } {
 const DMS =
   /^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/;
 
-/**
- * Parse "lat, lon" or "lon, lat" text input.  Latitude-first is the common
- * convention; if the first value cannot be a latitude the order is swapped.
- */
 export function parseCoordinates(text: string): [number, number] | null {
   const m = DMS.exec(text);
   if (!m) return null;

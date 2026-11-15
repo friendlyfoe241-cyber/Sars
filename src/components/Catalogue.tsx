@@ -5,7 +5,6 @@ import type { NisarScene } from "../lib/discovery";
 import { compatibilityLabel, pairIssues, type ScenePair } from "../lib/pairing";
 import { scenePairId } from "../lib/selection";
 
-/** "25 Oct 2026 · 05:12 UTC · track 12 · frame 34" */
 function sceneLabel(s: NisarScene): string {
   return [
     `${formatDate(s.startTime)} ${s.startTime.slice(11, 16)} UTC`,
@@ -17,10 +16,6 @@ function sceneLabel(s: NisarScene): string {
     .join(" · ");
 }
 
-/**
- * The catalogue date range.  Applying it runs the search again, which clears
- * the scene list, roles, comparison and explanation (App.runSearch).
- */
 export function DateFilter({
   dateFrom,
   dateTo,
@@ -82,7 +77,6 @@ export function DateFilter({
   );
 }
 
-/** Suggested compatible pairs, as a grid of cards with a Compare action. */
 export const SuggestedPairs = memo(function SuggestedPairs({
   pairs,
   metadataOnlyPairIds,
@@ -156,10 +150,6 @@ export const SuggestedPairs = memo(function SuggestedPairs({
   );
 });
 
-/**
- * Manual Before / After choice from the scene list, with the compatibility
- * check and the Compare action.
- */
 export function ManualPair({
   scenes,
   roleBefore,
@@ -230,10 +220,6 @@ export function ManualPair({
   );
 }
 
-/**
- * The Before / After assigned from the observations table, with the Compare
- * action (Scenes page).
- */
 export function PairSummary({
   scenes,
   roleBefore,
@@ -246,7 +232,6 @@ export function PairSummary({
   roleBefore: string | null;
   roleAfter: string | null;
   onLoadPair: (beforeId: string, afterId: string) => void;
-  /** number of suggested pairs (0: no link to them) */
   pairCount: number;
   onSeePairs: () => void;
 }) {

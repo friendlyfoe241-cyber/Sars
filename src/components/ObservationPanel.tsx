@@ -89,7 +89,6 @@ function SceneRows({ scene }: { scene: NisarScene }) {
   );
 }
 
-/** One catalogue scene's details (Scenes page: the selected scene). */
 export function SceneDetails({ scene }: { scene: NisarScene }) {
   return (
     <Section title="Selected scene">

@@ -3,9 +3,7 @@ export type StepId = "locate" | "scenes" | "pairs" | "change" | "explain";
 export interface Step {
   id: StepId;
   label: string;
-  /** id of the sidebar element the step scrolls to */
   anchor: string;
-  /** shown when the step has nothing to show yet */
   locked: string;
 }
 

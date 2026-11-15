@@ -31,7 +31,6 @@ function ServiceHelp() {
   );
 }
 
-/** Results table rows: value, unit and provenance kind of each metric. */
 function MetricTable({ rows }: { rows: { metric: string; value: number | string | null; unit: string; kind: string }[] }) {
   return (
     <table className="vx-itable vx-itable--results">

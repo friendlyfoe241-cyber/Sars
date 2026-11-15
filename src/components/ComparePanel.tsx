@@ -7,20 +7,16 @@ import type { ChannelStatus } from "../lib/rasterSource";
 
 interface ComparePanelProps {
   dataset: ViewerDataset;
-  /** per-channel load state; only ready channels can be selected */
   channelStatus: Record<string, ChannelStatus>;
   pol: string;
   onPolChange: (pol: string) => void;
   layer: DisplayChoice;
   onLayerChange: (layer: DisplayChoice) => void;
-  /** false while no before/after pair of the selected channel is loaded */
   canCompare: boolean;
   computing: boolean;
   showAllFootprints: boolean;
   onToggleFootprints: (show: boolean) => void;
-  /** frame the area of interest on the map again */
   onFit: () => void;
-  /** the legend for the current layer and channel, shown under the layer switch */
   legend?: ReactNode;
 }
 

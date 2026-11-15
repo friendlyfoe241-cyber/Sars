@@ -7,25 +7,19 @@ import Glass from "./glass/Glass";
 
 interface MapLegendProps {
   viewer: ViewerDataset;
-  /** "compare": both sides are observations, so the brightness legend applies */
   layer: DisplayLayer | "compare";
   pol: string;
-  /** change colour-scale saturation of `pol`; the ramp endpoints are this value */
   saturation: number | null;
-  /** "map": floating glass card over the map; "inline": flat block in the sidebar (phones) */
   variant?: "map" | "inline";
 }
 
 const rgb = (c: readonly number[]) => `rgb(${c.join(",")})`;
 
 function MapLegend({ viewer, layer, pol, saturation, variant = "map" }: MapLegendProps) {
-  // On the map the legend can fold into a small "Legend" chip.
   const [collapsed, setCollapsed] = useState(false);
   if (layer === "change" && saturation === null) return null;
   const change = layer === "change";
   const unit = change ? viewer.changeScale.unit : viewer.encoding.unit;
-  // The ramp is drawn from the same function that colours the raster, at
-  // the two saturation endpoints and zero; linear interpolation in between.
   const ramp = change
     ? `linear-gradient(90deg, ${rgb(changeColour(-saturation!, saturation!))}, ${rgb(
         changeColour(0, saturation!),

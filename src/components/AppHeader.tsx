@@ -12,11 +12,6 @@ const DOT: Record<ChipTone, string> = {
   error: "#ff9aa6",
 };
 
-/**
- * The floating glass header: a centred pill with the five-step rail, the live
- * status of the selection and the way back to the globe.  It slides in from
- * the top edge whenever the workspace is revealed.
- */
 export default function AppHeader({
   active,
   available,

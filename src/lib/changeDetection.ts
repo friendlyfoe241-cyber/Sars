@@ -1,40 +1,19 @@
-// Deterministic change-detection maths.  No DOM access and no state: given
-// the same inputs these functions always return the same outputs, so results
-// are reproducible and testable independently of the UI.
-//
-// Rasters are 8-bit, and in both encodings the unit value is a linear
-// function of the stored DN, so the pixel difference (after - before) is
-// always `deltaScale(encoding) * (afterDN - beforeDN)` with an integer DN
-// delta in [-255, 255].  Every statistic is therefore derived exactly from a
-// 511-bin histogram of DN deltas: one pass over the pixels, no per-pixel
-// float arrays and no sorting.  Missing observations (nodata / outside the
-// footprint) are excluded from every statistic.
-
 import type { RasterEncoding } from "./data";
 
-/** Largest absolute DN delta between two 8-bit rasters. */
 export const MAX_DN_DELTA = 255;
 const BINS = 2 * MAX_DN_DELTA + 1;
 
-/** Unit value of one DN step of difference ("display DN" or dB). */
 export function deltaScale(encoding: RasterEncoding): number {
   if (encoding.type === "quicklook_dn") return 1;
   return ((encoding.dbMax ?? 5) - (encoding.dbMin ?? -30)) / 254;
 }
 
 export interface DeltaHistogram {
-  /** counts[d + MAX_DN_DELTA] = number of valid pixels with DN delta d */
   counts: Uint32Array;
-  /** pixels where both observations are valid */
   valid: number;
-  /** pixels visited (valid or not) */
   total: number;
 }
 
-/**
- * Histogram of (after - before) DN deltas over pixels valid in both rasters.
- * `step` > 1 subsamples deterministically (every step-th pixel).
- */
 export function deltaHistogram(
   before: Uint8ClampedArray,
   after: Uint8ClampedArray,
@@ -58,7 +37,6 @@ export function deltaHistogram(
   return { counts, valid, total };
 }
 
-/** DN delta of the pixel at 0-based `rank` in ascending order. */
 function deltaAtRank(counts: Uint32Array, rank: number): number {
   let seen = 0;
   for (let bin = 0; bin < BINS; bin++) {
@@ -68,7 +46,6 @@ function deltaAtRank(counts: Uint32Array, rank: number): number {
   return MAX_DN_DELTA;
 }
 
-/** Linearly interpolated percentile (same definition as a sorted-array lookup). */
 function percentile(hist: DeltaHistogram, p: number): number {
   const idx = (hist.valid - 1) * p;
   const lo = Math.floor(idx);
@@ -91,11 +68,6 @@ export interface ChangeSummary {
   p90: number;
 }
 
-/**
- * Robust summary of a DN-delta histogram (over valid pixels).  The one place
- * the summary statistics are derived, so every consumer shows the same
- * numbers.
- */
 export function summarizeFromHistogram(
   hist: DeltaHistogram,
   encoding: RasterEncoding,
@@ -128,7 +100,6 @@ export function summarizeFromHistogram(
   };
 }
 
-/** Robust summary of the difference distribution over valid pixels. */
 export function summarizeChange(
   before: Uint8ClampedArray,
   after: Uint8ClampedArray,
@@ -138,10 +109,6 @@ export function summarizeChange(
   return summarizeFromHistogram(deltaHistogram(before, after, encoding.nodata), encoding, unit);
 }
 
-/**
- * Colour-scale saturation: 98th percentile of the difference over a
- * deterministic subsample (every 3rd pixel), rounded to a tidy value.
- */
 export function computeSaturation(
   before: Uint8ClampedArray,
   after: Uint8ClampedArray,
@@ -156,17 +123,10 @@ export function computeSaturation(
   return Math.max(1, Math.round(p98 * 2) / 2);
 }
 
-// Diverging scale centred on zero (design system "scientific
-// visualisation language"): decrease cyan, no difference neutral grey,
-// increase amber.  Keep in step with --vx-data-* in styles/vortex.css.
-const NEUTRAL = [190, 201, 210] as const; // #BEC9D2
-const NEGATIVE = [104, 197, 235] as const; // #68C5EB
-const POSITIVE = [243, 184, 90] as const; // #F3B85A
+const NEUTRAL = [190, 201, 210] as const;
+const NEGATIVE = [104, 197, 235] as const;
+const POSITIVE = [243, 184, 90] as const;
 
-/**
- * Diverging colour scale: decrease -> cyan, zero -> neutral grey, increase ->
- * amber.  Colours are interpolated linearly in RGB; no smoothing.
- */
 export function changeColour(delta: number, saturation: number): [number, number, number] {
   const t = Math.max(-1, Math.min(1, delta / saturation));
   const target = t < 0 ? NEGATIVE : POSITIVE;
@@ -178,14 +138,8 @@ export function changeColour(delta: number, saturation: number): [number, number
   ];
 }
 
-// ---------------------------------------------------------------------------
-// Per-date brightness distribution (temporal graph)
-// ---------------------------------------------------------------------------
-
-/** Number of 8-bit display DN values (0..255). */
 export const DN_BINS = 256;
 
-/** Distribution of display DN of one acquisition over the common-valid pixels. */
 export interface DateDistribution {
   mean: number;
   median: number;
@@ -196,16 +150,12 @@ export interface DateDistribution {
 }
 
 export interface PerDateStats {
-  /** pixels valid in EVERY date */
   validPixels: number;
-  /** pixels visited */
   totalPixels: number;
   validFraction: number;
-  /** one entry per input raster, in input order (callers pass chronological order) */
   dates: DateDistribution[];
 }
 
-/** DN of the pixel at 0-based `rank` in ascending order. */
 function dnAtRank(counts: Uint32Array, rank: number): number {
   let seen = 0;
   for (let dn = 0; dn < DN_BINS; dn++) {
@@ -215,7 +165,6 @@ function dnAtRank(counts: Uint32Array, rank: number): number {
   return DN_BINS - 1;
 }
 
-/** Same interpolated percentile definition as `percentile` above, for a DN histogram. */
 function dnPercentile(counts: Uint32Array, valid: number, p: number): number {
   const idx = (valid - 1) * p;
   const lo = Math.floor(idx);
@@ -225,13 +174,6 @@ function dnPercentile(counts: Uint32Array, valid: number, p: number): number {
   return vLo + (vHi - vLo) * (idx - lo);
 }
 
-/**
- * Display-DN distribution of each raster over the pixels that are valid in
- * ALL rasters (same nodata rule as `deltaHistogram`: a pixel equal to
- * `nodata` in any raster is excluded from every date).  One pass, a 256-bin
- * histogram per date, exact (linearly interpolated) percentiles.  Values are
- * NaN when no pixel is valid in all dates.  No interpolation across dates.
- */
 export function perDateStats(
   rasters: readonly Uint8ClampedArray[],
   nodata: number,

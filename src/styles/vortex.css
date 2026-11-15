@@ -1,9 +1,3 @@
-/* Vortex design tokens and the primitives the content components use
- * (buttons, fields, segments, sections, notices ...).  Surfaces are glass
- * (see glass.css); everything here sits ON glass, so fills are translucent
- * white and borders are hairlines.  No orange in the chrome: the amber
- * "increase" colour is scientific data encoding only (legend, map, graph). */
-
 :root {
   color-scheme: dark;
   --vx-bg: #000000;
@@ -11,32 +5,27 @@
   --vx-surface-raised: rgba(255, 255, 255, 0.1);
   --vx-surface-hover: rgba(255, 255, 255, 0.17);
   --vx-text: #f2f4f7;
-  --vx-text-muted: #c3cbd8; /* >= 7:1 on the dark glass scrim */
-  --vx-text-subtle: #a3adbd; /* >= 5:1 on the dark glass scrim */
-  --vx-accent: #4f46e5; /* fill behind white text (6.3:1) */
+  --vx-text-muted: #c3cbd8;
+  --vx-text-subtle: #a3adbd;
+  --vx-accent: #4f46e5;
   --vx-accent-2: #6d4ce0;
   --vx-on-accent: #ffffff;
-  --vx-flare: #9db8ff; /* accent as text */
+  --vx-flare: #9db8ff;
   --vx-cyan: #7cc4ff;
   --vx-violet: #9d74f0;
   --vx-border: rgba(255, 255, 255, 0.16);
   --vx-control-border: rgba(255, 255, 255, 0.36);
   --vx-focus: #9db8ff;
   --vx-success: #86e3b5;
-  --vx-warning: #d4bcff; /* violet-tinted, not amber */
+  --vx-warning: #d4bcff;
   --vx-error: #ff9aa6;
-  /* series for non-change data (graphs): cyan, violet */
   --vx-series-1: var(--vx-cyan);
   --vx-series-2: var(--vx-violet);
-  /* scientific encoding of change direction: leave alone */
   --vx-data-decrease: #68c5eb;
   --vx-data-neutral: #bec9d2;
   --vx-data-increase: #f3b85a;
-  /* the workspace display face; .vx-hero (index.css) swaps in Metamorphous */
   --vx-font-display: "Sora Variable", "Sora", ui-sans-serif, system-ui, sans-serif;
   --vx-font-body: "Sora Variable", "Sora", ui-sans-serif, system-ui, sans-serif;
-  /* numbers and dates stay in Sora with tabular figures; real monospace is
-     only used for product ids (Tailwind font-mono). */
   --vx-font-mono: var(--vx-font-body);
   --vx-font-code: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --vx-shadow: 0 16px 48px rgb(0 0 0 / 45%);
@@ -59,7 +48,6 @@
   font-size: 0.92em;
 }
 
-/* ---- buttons ----------------------------------------------------------- */
 .vx-button {
   display: inline-flex;
   align-items: center;
@@ -126,7 +114,6 @@
   color: #d6d9ff;
 }
 
-/* ---- fields ------------------------------------------------------------- */
 .vx-field {
   display: grid;
   gap: 8px;
@@ -176,7 +163,6 @@
   background-repeat: no-repeat;
 }
 
-/* ---- segmented controls -------------------------------------------------- */
 .vx-segment-group {
   display: flex;
   flex-wrap: wrap;
@@ -228,7 +214,6 @@
   white-space: nowrap;
 }
 
-/* ---- sections, notes, key/value ----------------------------------------- */
 .vx-section {
   padding: 14px 20px;
   border-bottom: 1px solid var(--vx-border);
@@ -346,7 +331,6 @@
   border-radius: 4px 4px 12px 12px;
 }
 
-/* ---- status notices ------------------------------------------------------ */
 .vx-notice {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -422,16 +406,6 @@
     4px 4px;
 }
 
-/* ---- page frame ------------------------------------------------------------
- * The workspace is a frame filling the viewport: the header pill on top and
- * below it ONE page per step.  Each page is a grid; the map is a region of
- * that grid (an empty [data-map-slot] cell the persistent .vx-stage is laid
- * over, see MapStage.tsx).  Content regions scroll inside themselves; the
- * frame never scrolls.
- *
- *   < 1024px (or short landscape)   head / map / scrolling content column
- *   short landscape >= 640px         head / map | scrolling content column
- *   >= 1024 x 720                    per-step grid (below)                    */
 .vx-frame {
   --vx-page-travel: 96px;
   position: absolute;
@@ -536,7 +510,6 @@
   border-radius: 6px;
 }
 
-/* glass panels of a page */
 .vx-panel {
   display: flex;
   flex: none;
@@ -581,7 +554,6 @@
   display: flex;
   flex-direction: column;
 }
-/* stacked pages: tables and the graph get a sensible own height */
 .vx-panel--table .vx-instr-scroll {
   max-height: 70vh;
 }
@@ -589,7 +561,6 @@
   height: 340px;
 }
 
-/* suggested pairs */
 .vx-pair-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
@@ -609,7 +580,6 @@
   box-shadow: inset 0 0 0 1.5px var(--vx-flare);
 }
 
-/* a locked step: one centred card on an otherwise empty page */
 .vx-empty {
   display: grid;
   flex: 1 0 auto;
@@ -621,7 +591,6 @@
   border-radius: 32px;
 }
 
-/* the map stage: a rounded, glass-framed box laid over the page's map slot */
 .vx-stage {
   position: absolute;
   z-index: 5;
@@ -694,7 +663,6 @@
   }
 }
 
-/* short landscape screens: map on the left at full height, content beside it */
 @media (min-width: 640px) and (max-height: 719px) and (orientation: landscape) {
   .vx-page {
     --vx-gap: 12px;
@@ -708,7 +676,6 @@
   }
 }
 
-/* desktop: every step has its own composition around the map */
 @media (min-width: 1024px) and (min-height: 720px) {
   .vx-page {
     padding: 16px 20px 20px;
@@ -717,7 +684,6 @@
   .vx-page__content {
     display: contents;
   }
-  /* (outranks the per-step compositions below) */
   .vx-page[data-locked][data-step] {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
@@ -735,28 +701,23 @@
   .vx-panel--grow {
     flex: 1 1 auto;
   }
-  /* map ~70% | search controls */
   .vx-page[data-step="locate"] {
     grid-template-columns: minmax(0, 1fr) clamp(320px, 30vw, 420px);
     grid-template-areas: "head head" "map side";
   }
-  /* map ~45% over the scene details | observations table, full height */
   .vx-page[data-step="scenes"] {
     grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
     grid-template-rows: auto minmax(280px, 1.2fr) minmax(0, 1fr);
     grid-template-areas: "head head" "map table" "info table";
   }
-  /* pairs and the manual choice | map with the two footprints */
   .vx-page[data-step="pairs"] {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-areas: "head head" "list map";
   }
-  /* map ~70% with the divider | display controls */
   .vx-page[data-step="change"] {
     grid-template-columns: minmax(0, 1fr) clamp(320px, 28vw, 400px);
     grid-template-areas: "head head" "map side";
   }
-  /* map ~40% over the explanation | results table over the graph */
   .vx-page[data-step="explain"] {
     grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
     grid-template-rows: auto minmax(280px, 1fr) minmax(0, 1fr);
@@ -764,7 +725,6 @@
   }
 }
 
-/* phones: the map can take the whole page (and back) */
 .vx-page[data-map-expanded] {
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
@@ -774,7 +734,6 @@
   display: none;
 }
 
-/* 44px square icon buttons (legend fold) */
 .vx-icon-button {
   display: inline-grid;
   place-items: center;
@@ -798,20 +757,14 @@
   transition: transform var(--vx-dur) var(--vx-ease);
 }
 
-/* ---- scrollers ---------------------------------------------------------------- */
 .vx-scroll {
   overflow-x: hidden;
   overflow-y: auto;
-  /* NOT `contain`: a panel body that fits its content (no scrollable
-     overflow) must still let the wheel chain to the page scroller on short
-     screens and phones.  With `contain` such a box becomes a dead scroll
-     boundary and eats every wheel/touch scroll over it. */
   overscroll-behavior: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
 }
 
-/* ---- progress bar (calibrated analysis) -------------------------------------- */
 .vx-progress {
   height: 8px;
   border-radius: 999px;
@@ -827,7 +780,6 @@
   transition: width 0.5s var(--vx-ease);
 }
 
-/* ---- map furniture ---------------------------------------------------------- */
 .vx-map {
   position: absolute;
   inset: 0;
@@ -837,8 +789,6 @@
   position: absolute;
   inset: 0;
 }
-/* Legend: bottom-left of the map stage.  On phones and on the Change and
-   Explain pages the legend sits in the page instead (variant "inline"). */
 .vx-legend {
   position: absolute;
   z-index: 900;
@@ -898,7 +848,6 @@
   padding: 10px 18px;
 }
 
-/* sr-only fallback is in Tailwind; reduced transparency */
 @media (prefers-contrast: more) {
   :root {
     --vx-border: rgba(255, 255, 255, 0.5);

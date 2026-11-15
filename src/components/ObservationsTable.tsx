@@ -10,7 +10,6 @@ interface ObservationsTableProps {
   scenes: NisarScene[];
   roleBefore: string | null;
   roleAfter: string | null;
-  /** scenes known to have no usable quicklook rasters */
   metadataOnlyIds: ReadonlySet<string>;
   selectedSceneId: string | null;
   locationLabel: string;
@@ -62,8 +61,6 @@ function ObservationsTable({
     const sign = dir === "asc" ? 1 : -1;
     const byTime = (a: NisarScene, b: NisarScene) =>
       sign * (Date.parse(a.startTime) - Date.parse(b.startTime));
-    // assigned rows stay first as soon as a role is set (not only once the pair
-    // has loaded), so rows do not jump later under the pointer
     const isPair = (s: NisarScene) => s.id === roleBefore || s.id === roleAfter;
     const first = scenes.filter(isPair).sort(byTime);
     const rest = scenes.filter((s) => !isPair(s)).sort(byTime);

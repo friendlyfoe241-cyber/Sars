@@ -32,45 +32,24 @@ interface MapViewProps {
   drawMode: boolean;
   onAoiDrawn: (aoi: Aoi) => void;
   onPickLocation: (lat: number, lon: number) => void;
-  /** a map click picks a location only where that makes sense (Locate) */
   pickEnabled: boolean;
   display: DisplayMode;
   pol: string;
-  /** change colour-scale saturation of `pol`; the legend describes this value */
   saturation: number | null;
-  /** rendered overlays of the loaded pair and channel, by layer */
   urls: LayerUrls;
-  /** identity of the loaded pair build (null: none); a change resets the divider */
   pairInstance: number | null;
-  /** true while a requested layer of the loaded pair is still being rendered */
   rendering: boolean;
-  /** previous overlay of the same pair and channel while `urls` lacks the requested layer */
   fallbackUrl: string | null;
-  /** grid bounds of the loaded pair (the AOI it was prepared for) */
   overlayBounds: Aoi | null;
   viewer: ViewerDataset | null;
-  /** bump to re-fit the map to the AOI */
   fitKey: number;
-  /** before / after scene ids of the loaded pair (footprints kept visible) */
   roleBefore: string | null;
   roleAfter: string | null;
-  /** with a pair loaded: also draw the non-selected catalogue footprints */
   showAllFootprints: boolean;
-  /** draw the legend over the map (false: the page shows it inline) */
   showLegend?: boolean;
-  /** limit drawn footprints for performance */
   maxFootprints?: number;
 }
 
-// Basemaps.  Both are keyless raster sources that send CORS headers.
-//   Earth      Esri World Imagery (default).  On high-DPI screens it uses
-//              128 px tiles one zoom deeper so each tile is drawn at device
-//              resolution.  Dimmed for the dark theme by a
-//              CSS filter on its own pane only (see leaflet.css), so the radar
-//              overlay is never filtered.
-//   Reference  Esri World Dark Gray base plus its reference-label layer.
-// VITE_BASEMAP_URL / VITE_BASEMAP_ATTRIBUTION replace the whole choice with a
-// single custom tile source (not filtered; pass tiles that are already dark).
 const CUSTOM_BASEMAP_URL: string = import.meta.env.VITE_BASEMAP_URL || "";
 const CUSTOM_BASEMAP_ATTRIBUTION: string = import.meta.env.VITE_BASEMAP_ATTRIBUTION || "";
 
@@ -84,14 +63,12 @@ const BASEMAPS: Record<
     maxNativeZoom: number;
     attribution: string;
     labelsUrl?: string;
-    /** on high-DPI screens draw half-size tiles one zoom deeper (sharp) */
     hiDpi?: boolean;
   }
 > = {
   earth: {
     label: "Earth",
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    // global coverage to level 19 (deeper only in some areas)
     maxNativeZoom: 19,
     attribution:
       "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
@@ -109,7 +86,6 @@ const BASEMAPS: Record<
 
 const BASEMAP_IDS: BasemapId[] = ["earth", "reference"];
 
-/** Labelled Earth / Reference switch, placed under Leaflet's zoom buttons. */
 function BasemapControl({
   value,
   onChange,
@@ -132,8 +108,6 @@ function BasemapControl({
       control.remove();
     };
   }, [map, container]);
-  // Phones: the map stage is short, so the switch collapses to a single 44px
-  // icon button that flips between the two basemaps.
   const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 767px)").matches);
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -188,16 +162,6 @@ function boundsOf(aoi: Aoi): L.LatLngBoundsExpression {
   ];
 }
 
-/**
- * Fit the AOI into the map stage (a small constant padding inside it), and
- * keep Leaflet's size in step with the stage: Leaflet does not watch its
- * container, and the stage changes box when the step page changes.
- *
- *  - `fitKey` (new AOI, Fit button): always fits.
- *  - the stage changed size: the map keeps its centre and refits only if
- *    the user has not moved it since the last automatic fit, so a manual pan
- *    or zoom is never thrown away.
- */
 function FitController({ aoi, fitKey }: { aoi: Aoi | null; fitKey: number }) {
   const map = useMap();
   const aoiRef = useRef(aoi);
@@ -213,7 +177,6 @@ function FitController({ aoi, fitKey }: { aoi: Aoi | null; fitKey: number }) {
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     programmatic.current = true;
     window.clearTimeout(guardTimer.current);
-    // moveend normally clears the flag; the timer covers a fit that moves nothing
     guardTimer.current = window.setTimeout(() => {
       programmatic.current = false;
     }, 900);
@@ -226,7 +189,6 @@ function FitController({ aoi, fitKey }: { aoi: Aoi | null; fitKey: number }) {
     });
   };
 
-  // A move or zoom the app did not start is the user's.
   useEffect(() => {
     const onStart = () => {
       if (!programmatic.current) userMoved.current = true;
@@ -243,7 +205,6 @@ function FitController({ aoi, fitKey }: { aoi: Aoi | null; fitKey: number }) {
     };
   }, [map]);
 
-  // The stage changed box (rAF-coalesced): resize Leaflet, keeping its centre.
   useEffect(() => {
     const container = map.getContainer();
     let w = container.clientWidth;
@@ -267,8 +228,6 @@ function FitController({ aoi, fitKey }: { aoi: Aoi | null; fitKey: number }) {
   return null;
 }
 
-/** Click on the map selects a location (skipped while drawing an AOI and
- * right after a completed draw, whose trailing click must not move the AOI). */
 function ClickHandler({
   enabled,
   onPick,
@@ -285,7 +244,6 @@ function ClickHandler({
   return null;
 }
 
-/** Drag-to-draw rectangle AOI; temporarily disables map panning. */
 function AoiDrawer({
   enabled,
   onAoiDrawn,
@@ -364,11 +322,8 @@ function ScaleBar() {
   return null;
 }
 
-// Leaflet paths take literal colours (canvas renderer), so these mirror the
-// Vortex tokens in styles/vortex.css: cyan, violet, text accent, text.
 const VX = { aoi: "#7CC4FF", selected: "#9D74F0", draw: "#9DB8FF", text: "#F2F4F7" } as const;
 
-// Quiet, thin catalogue footprints; the selected one reads in violet.
 const FOOTPRINT_STYLE: L.PathOptions = {
   color: VX.text,
   weight: 1,
@@ -384,8 +339,6 @@ const FOOTPRINT_SELECTED_STYLE: L.PathOptions = {
   fillColor: VX.selected,
   fillOpacity: 0.06,
 };
-// Selected AOI: cyan outline, no visible fill over the data (the invisible
-// fill keeps clicks inside the rectangle behaving as before).
 const AOI_STYLE: L.PathOptions = {
   color: VX.aoi,
   weight: 2,
@@ -394,11 +347,6 @@ const AOI_STYLE: L.PathOptions = {
   fillOpacity: 0,
 };
 
-/**
- * One catalogue footprint.  Memoised with stable positions, style and
- * handlers so that selecting a scene only touches the two polygons whose
- * state changed instead of re-projecting every footprint on the map.
- */
 const Footprint = memo(function Footprint({
   scene,
   selected,
@@ -455,8 +403,6 @@ function MapView({
   showLegend = true,
   maxFootprints = 200,
 }: MapViewProps) {
-  // Once a pair is loaded only the selected footprints stay (quiet map);
-  // a labelled toggle in Compare restores the rest.
   const pairLoaded = viewer !== null;
   const shown = useMemo(() => {
     const drawable = scenes.slice(0, maxFootprints).filter((s) => s.footprint.length >= 3);
@@ -465,8 +411,6 @@ function MapView({
       (s) => s.id === roleBefore || s.id === roleAfter || s.id === selectedSceneId,
     );
   }, [scenes, maxFootprints, pairLoaded, showAllFootprints, roleBefore, roleAfter, selectedSceneId]);
-  // Stable bounds objects: react-leaflet re-applies bounds whenever the prop
-  // identity changes.
   const aoiBounds = useMemo(() => (aoi ? boundsOf(aoi) : null), [aoi]);
   const imageBounds = useMemo(
     () => (overlayBounds ? boundsOf(overlayBounds) : null),
@@ -475,13 +419,8 @@ function MapView({
   const drawGuard = useRef(0);
   const [basemapId, setBasemapId] = useState<BasemapId>("earth");
   const basemap = BASEMAPS[basemapId];
-  // Leaflet's detectRetina, done by hand: it would also lower the layer's
-  // maxZoom to 13 (blank at the map's zoom 14) and not adjust maxNativeZoom.
   const hiDpi = !!basemap.hiDpi && L.Browser.retina;
 
-  // Divider position (0..1 of the usable map width) is a ref owned here and
-  // written by CompareDivider's DOM code: dragging never re-renders anything.
-  // It survives channel and layer switches and resets for a new pair or area.
   const dividerPosition = useRef(0.5);
   const lastPair = useRef<number | null>(pairInstance);
   if (lastPair.current !== pairInstance) {
@@ -492,8 +431,6 @@ function MapView({
   const compare = display.mode === "swipe";
   const layer: DisplayLayer | "compare" = display.mode === "single" ? display.layer : "compare";
   const overlayUrl = display.mode === "single" ? (urls[display.layer] ?? fallbackUrl) : null;
-  // Compare needs both layers; while either renders show the loading state
-  // instead of half a comparison.
   const compareReady = compare && imageBounds !== null && !!urls[display.left] && !!urls[display.right];
   const beforeDate = viewer ? formatDate(viewer.earlier.startTime) : "";
   const afterDate = viewer ? formatDate(viewer.later.startTime) : "";
@@ -522,7 +459,6 @@ function MapView({
           </Pane>
         ) : (
           <>
-            {/* own pane: the dimming filter in leaflet.css targets it alone */}
             <Pane
               key={basemapId}
               name="orbBasemap"
@@ -570,7 +506,6 @@ function MapView({
           />
         )}
 
-        {/* footprints of actual catalogue results only */}
         {shown.map((scene) => (
           <Footprint
             key={scene.id}

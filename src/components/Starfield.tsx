@@ -1,9 +1,5 @@
 import { useMemo } from "react";
 
-/**
- * Deep-space backdrop: a seeded field of twinkling stars plus two faint
- * nebula clouds that drift very slowly. Purely decorative.
- */
 export default function Starfield({
   count = 140,
   nebula = true,

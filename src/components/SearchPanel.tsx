@@ -15,12 +15,9 @@ interface SearchPanelProps {
   onAoiSizeChange: (km: number) => void;
   drawMode: boolean;
   onToggleDraw: () => void;
-  /** frame the area of interest on the map again */
   onFit: () => void;
-  /** the catalogue date range (empty: any date) */
   dateFrom: string;
   dateTo: string;
-  /** run the catalogue search for the area and this date range */
   onSearchData: (from: string, to: string) => void;
   searching: boolean;
   exampleLabel: string | null;
@@ -45,7 +42,6 @@ export default function SearchPanel({
   exampleLabel,
   onExample,
 }: SearchPanelProps) {
-  // Local to the panel: typing re-renders only this component.
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState(dateFrom);
   const [to, setTo] = useState(dateTo);

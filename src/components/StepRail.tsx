@@ -2,11 +2,6 @@ import { useEffect, useState } from "react";
 import { STEPS, type StepId } from "../lib/steps";
 import StepIcon from "./StepIcon";
 
-/**
- * Segmented step control.  The active indicator slides sideways to the
- * current step (a transform transition).  Shows labels on wide screens and
- * icons only on narrow ones.
- */
 export default function StepRail({
   active,
   available,
@@ -33,8 +28,6 @@ export default function StepRail({
     };
   }, []);
   const wide = vw >= 1100;
-  // icons only below 1100px; 44px targets on the narrowest phones so the
-  // header pill fits 320px
   const BW = wide ? 100 : vw < 360 ? 44 : 48;
   const idx = Math.max(0, STEPS.findIndex((s) => s.id === active));
 

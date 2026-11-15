@@ -4,28 +4,12 @@ import StepIcon from "./StepIcon";
 import Starfield from "./Starfield";
 import { STEPS, type StepId } from "../lib/steps";
 
-/**
- * Landing scene, laid out as three grid rows so nothing can overlap the text:
- *
- *   1. the title block (eyebrow, title, subtitle), its own row at the top;
- *   2. the globe stage: the globe's top edge sits a gap below the title block
- *      and its size comes from the space left (it may bleed off the bottom and
- *      sides, where the hero crops it);
- *   3. the command dock, which may sit over the globe's lower part.
- *
- * The title comes in from the top edge, the globe rises behind it and the
- * liquid-glass command dock rises from the bottom edge.  Pressing a command
- * hands over to the workspace at once: the hero fades while its title and
- * dock slide back out to their edges (`leaving`).
- */
 export default function Hero({
   intro,
   leaving,
   onEnter,
 }: {
-  /** true on first load; false when returning from the app (Globe button) */
   intro: boolean;
-  /** playing the exit; unmounted by the parent once it has finished */
   leaving: boolean;
   onEnter: (step: StepId) => void;
 }) {
@@ -49,8 +33,6 @@ export default function Hero({
     };
   }, []);
 
-  // Focus the first command when the user brought the hero up (Globe button)
-  // or nothing else holds focus.
   useEffect(() => {
     const ae = document.activeElement;
     if (intro && ae && ae !== document.body) return;
@@ -59,7 +41,6 @@ export default function Hero({
       ?.focus({ preventScroll: true });
   }, [intro]);
 
-  // five commands always fit the width (12px gutters, 8px dock padding)
   const bw = W >= 720 ? 128 : W >= 360 ? 64 : 56;
   const hi = hover ?? 2;
 
@@ -73,7 +54,6 @@ export default function Hero({
       <Starfield count={180} />
 
       <div className="vx-hero__layout">
-        {/* 1. title */}
         <section
           aria-labelledby="hero-title"
           className="vx-in-top vx-hero__title pointer-events-none flex flex-col items-center gap-3 px-6 text-center"
@@ -89,7 +69,6 @@ export default function Hero({
           </p>
         </section>
 
-        {/* 2. globe: laid out below the title block, sized from what is left */}
         <div className="vx-hero__stage" aria-hidden="true">
           <div className="vx-hero__globe-box">
             <div className="vx-in-bottom vx-hero__globe h-full w-full">
@@ -131,7 +110,6 @@ export default function Hero({
           </div>
         </div>
 
-        {/* 3. command dock */}
         <div className="vx-hero__dock-row pointer-events-none flex justify-center px-3">
           <Glass as="nav" aria-label="Command" className="vx-in-bottom vx-hero__dock pointer-events-auto rounded-full">
             <div className="relative flex p-2" onMouseLeave={() => setHover(null)}>
