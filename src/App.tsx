@@ -1255,7 +1255,6 @@ export default function App() {
         data-leave={current ? undefined : dir}
         data-map-expanded={current && map && mapExpanded ? "" : undefined}
         inert={!current}
-        aria-hidden={current ? undefined : true}
       >
         <div className="vx-page__head">
           <span className="vx-page__icon">
