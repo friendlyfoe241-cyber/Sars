@@ -21,6 +21,24 @@ export default function Hero({
   const hoverRef = useRef<number | null>(null);
   const pointerRef = useRef<number | null>(null);
   const focusRef = useRef<number | null>(null);
+  const keyboardRef = useRef(false);
+
+  useEffect(() => {
+    const onKey = () => {
+      keyboardRef.current = true;
+    };
+    const onPointer = () => {
+      keyboardRef.current = false;
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", onPointer, true);
+    window.addEventListener("pointermove", onPointer, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("pointermove", onPointer, true);
+    };
+  }, []);
   const quietRef = useRef(false);
   const [W, setW] = useState(() => window.innerWidth);
 
@@ -71,10 +89,10 @@ export default function Hero({
     settle();
   };
 
-  const focusOn = (i: number) => {
+  const focusOn = (i: number, el: HTMLElement) => {
     hoverRef.current = i;
     setHover(i);
-    if (quietRef.current) return;
+    if (quietRef.current || !keyboardRef.current || !el.matches(":focus-visible")) return;
     focusRef.current = i;
     settle();
   };
@@ -179,7 +197,7 @@ export default function Hero({
                   style={{ width: bw, minHeight: 64, color: hover === i ? "#fff" : "#D9DEE5" }}
                   aria-label={`Open ${s.label}`}
                   onMouseEnter={() => pick(i)}
-                  onFocus={() => focusOn(i)}
+                  onFocus={(e) => focusOn(i, e.currentTarget)}
                   onBlur={blurFrom}
                   onClick={() => onEnter(s.id)}
                 >
