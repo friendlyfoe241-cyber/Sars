@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronRight, Maximize2, Minimize2 } from "lucide-react";
+import { ChevronRight, FileJson, FileSpreadsheet, FileText, Maximize2, Minimize2 } from "lucide-react";
 import { isAbortError } from "./lib/abort";
+import AnalysisPanel, { type AnalysisState } from "./components/AnalysisPanel";
+import {
+  AnalysisError,
+  analysisBase,
+  submitAnalysis,
+  waitForAnalysis,
+  type AnalysisResult,
+} from "./lib/analysisApi";
+import { downloadFile, reportCsv, reportHtml, reportJson, type ReportInput } from "./lib/exportReport";
 import { DateFilter, ManualPair, PairSummary, SuggestedPairs } from "./components/Catalogue";
 import ComparePanel from "./components/ComparePanel";
 import MapStage from "./components/MapStage";
@@ -38,6 +47,7 @@ import {
 import {
   datasetStatusLabel,
   datasetStatusNote,
+  formatDate,
   loadManifest,
   type PreparedDataset,
   type ViewerDataset,
@@ -72,6 +82,7 @@ import {
 } from "./lib/viewState";
 
 const IDLE_AI: AiState = { status: "idle" };
+const IDLE_ANALYSIS: AnalysisState = { status: "idle" };
 /** which way the step pages slide: by step order */
 type SwapDir = "next" | "prev";
 const STEP_IDS = STEPS.map((x) => x.id);
@@ -84,6 +95,26 @@ const NEXT_STEP: Record<StepId, StepId | null> = {
 };
 const METADATA_ONLY_MESSAGE =
   "Quicklook rasters for this pair are not available. Scene metadata is shown instead of a comparison.";
+
+/** Trimmed calibrated results for the Gemini payload (computed facts only). */
+function analysisFacts(result?: AnalysisResult) {
+  if (!result) return null;
+  return {
+    eventType: result.eventType,
+    acquisitionDates: result.acquisitionDates,
+    processing: {
+      eventMethod: result.processing.eventMethod,
+      methodParameters: result.processing.methodParameters,
+      unitsOfResults: result.processing.unitsOfResults,
+    },
+    statistics: {
+      mean_difference_db: result.statistics.mean_difference_db,
+      median_difference_db: result.statistics.median_difference_db,
+      valid_fraction: result.statistics.valid_fraction,
+    },
+    areaEstimates: result.areaEstimates,
+  };
+}
 
 export default function App() {
   // ---- example dataset (public/data) ---------------------------------
@@ -153,6 +184,11 @@ export default function App() {
   // The explanation is stored with the selection key it was requested for
   // and only shown while that key is the current one.
   const [aiEntry, setAiEntry] = useState<{ key: string; state: AiState } | null>(null);
+  // Calibrated analysis runs against the Python pipeline; same key rule.
+  const [analysisEntry, setAnalysisEntry] = useState<{
+    key: string;
+    state: AnalysisState;
+  } | null>(null);
 
   // Cancellation: every search / pair load has an AbortController and a
   // sequence number.  The controller drops the fetches; the sequence check is
@@ -162,6 +198,7 @@ export default function App() {
   const searchAbort = useRef<AbortController | null>(null);
   const pairAbort = useRef<AbortController | null>(null);
   const aiRequest = useRef<string | null>(null);
+  const analysisAbort = useRef<AbortController | null>(null);
   const aoiRef = useRef<Aoi | null>(null);
   // Channel to load first for the next pair (read at load time only).
   const polRef = useRef("");
@@ -270,6 +307,10 @@ export default function App() {
   const pairLoaded = viewState.kind === "ready" || viewState.kind === "no-valid-pixels";
   const ai: AiState =
     aiEntry && aiEntry.key === currentSelectionKey ? aiEntry.state : IDLE_AI;
+  const analysis: AnalysisState =
+    analysisEntry && analysisEntry.key === currentSelectionKey
+      ? analysisEntry.state
+      : IDLE_ANALYSIS;
 
   // ---- invalidation ---------------------------------------------------
   const abortPairLoad = useCallback(() => {
@@ -282,8 +323,11 @@ export default function App() {
   const clearPair = useCallback(() => {
     abortPairLoad();
     aiRequest.current = null;
+    analysisAbort.current?.abort();
+    analysisAbort.current = null;
     setPairState(IDLE_PAIR);
     setAiEntry(null);
+    setAnalysisEntry(null);
   }, [abortPairLoad]);
 
   /**
@@ -303,6 +347,8 @@ export default function App() {
         searchAbort.current = null;
         abortPairLoad();
         aiRequest.current = null;
+        analysisAbort.current?.abort();
+        analysisAbort.current = null;
         setAoi(next);
         setSearching(false);
         setSearched(false);
@@ -314,6 +360,7 @@ export default function App() {
         setRoleAfter(null);
         setPairState(IDLE_PAIR);
         setAiEntry(null);
+        setAnalysisEntry(null);
       }
       if (opts.fit) setFitKey((k) => k + 1);
     },
@@ -438,6 +485,8 @@ export default function App() {
       searchAbort.current = controller;
       abortPairLoad(); // abandon any pair load started for the old results
       aiRequest.current = null;
+      analysisAbort.current?.abort();
+      analysisAbort.current = null;
       setSearching(true);
       setSearchError(null);
       setSearched(true);
@@ -448,6 +497,7 @@ export default function App() {
       setRoleAfter(null);
       setPairState(IDLE_PAIR);
       setAiEntry(null);
+      setAnalysisEntry(null);
       try {
         const result = await searchNisarGcov(
           {
@@ -498,7 +548,10 @@ export default function App() {
       });
       abortPairLoad();
       aiRequest.current = null;
+      analysisAbort.current?.abort();
+      analysisAbort.current = null;
       setAiEntry(null);
+      setAnalysisEntry(null);
       // Metadata alone can say the pair has no quicklook: no network needed.
       if (pairQuicklookStatus(before, after, example) === "metadata-only") {
         setPairState({ status: "error", key, message: METADATA_ONLY_MESSAGE, metadataOnly: true });
@@ -594,10 +647,7 @@ export default function App() {
     };
     setAiEntry({ key, state: { status: "loading" } });
     try {
-      const res = await fetch("/api/explain-change", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const payload = JSON.stringify({
           studyArea: {
             name: viewer.areaLabel,
             country: "",
@@ -617,8 +667,24 @@ export default function App() {
             limitations: viewer.limitations,
           },
           statistics: summary,
-        }),
-      });
+          // calibrated results from the processing pipeline, when this
+          // selection has completed one (trimmed to the facts the model may use)
+          analysis: analysisFacts(analysis.job?.result),
+        });
+      // Vercel serves the endpoint same-origin; static hosting falls back to
+      // the analysis worker, which exposes the same endpoint.
+      let res = await fetch("/api/explain-change", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      }).catch(() => null);
+      if (!res || res.status === 404) {
+        res = await fetch(`${analysisBase()}/api/explain-change`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+        });
+      }
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         settle({
@@ -646,7 +712,110 @@ export default function App() {
           "The explanation endpoint is not available. In local development run `vercel dev` instead of `npm run dev`.",
       });
     }
-  }, [viewer, summary, channel, currentSelectionKey]);
+  }, [viewer, summary, channel, currentSelectionKey, analysis]);
+
+  // ---- calibrated analysis (Python pipeline) --------------------------
+  const handleRunAnalysis = useCallback(async () => {
+    if (!aoi || !viewer || !currentSelectionKey) return;
+    const key = currentSelectionKey;
+    analysisAbort.current?.abort();
+    const controller = new AbortController();
+    analysisAbort.current = controller;
+    const settle = (state: AnalysisState) => {
+      if (analysisAbort.current === controller) setAnalysisEntry({ key, state });
+    };
+    settle({ status: "running", job: { analysisId: "", status: "running", progress: "submitting" } });
+    try {
+      const { analysisId } = await submitAnalysis(
+        {
+          bbox: [aoi.west, aoi.south, aoi.east, aoi.north],
+          eventType: "deforestation",
+          beforeDate: viewer.earlier.startTime.slice(0, 10),
+          afterDate: viewer.later.startTime.slice(0, 10),
+          polarisation: channel,
+          thresholdDb: 3,
+          direction: "decrease",
+        },
+        controller.signal,
+      );
+      const job = await waitForAnalysis(
+        analysisId,
+        (j) => settle({ status: "running", job: j }),
+        controller.signal,
+      );
+      if (job.status === "succeeded" && job.result) {
+        settle({ status: "done", job });
+      } else {
+        settle({
+          status: "error",
+          job,
+          message: job.error?.message ?? "The analysis failed.",
+        });
+      }
+    } catch (err) {
+      if (isAbortError(err)) return;
+      settle({
+        status: "error",
+        message:
+          err instanceof AnalysisError
+            ? err.message
+            : `The analysis service is not available. ${err instanceof Error ? err.message : ""}`,
+      });
+    }
+  }, [aoi, viewer, channel, currentSelectionKey]);
+
+  // ---- exports (JSON / CSV / printable report) ------------------------
+  const handleExport = useCallback(
+    async (kind: "json" | "csv" | "report") => {
+      const toDataUrl = async (url?: string) => {
+        if (!url) return undefined;
+        try {
+          const blob = await (await fetch(url)).blob();
+          return await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.readAsDataURL(blob);
+          });
+        } catch {
+          return undefined;
+        }
+      };
+      const result = analysis.status === "done" ? (analysis.job?.result ?? null) : null;
+      const input: ReportInput = {
+        title: "NISAR surface-change investigation",
+        areaLabel: locationLabel || (aoi ? formatAoi(aoi) : ""),
+        bbox: aoi ? [aoi.west, aoi.south, aoi.east, aoi.north] : null,
+        eventLabel: result
+          ? "Potential vegetation disturbance (candidate deforestation-related change)"
+          : "Surface change (quicklook comparison)",
+        pairStats,
+        analysis: result,
+        images:
+          kind === "report"
+            ? {
+                before: await toDataUrl(urls.before),
+                after: await toDataUrl(urls.after),
+                change: await toDataUrl(urls.change),
+              }
+            : {},
+        aiText:
+          ai.status === "done" && ai.explanation ? { ...ai.explanation } : null,
+        limitations: [
+          ...(viewer?.limitations ?? []),
+          ...(result?.limitations ?? []),
+        ],
+        generatedUtc: new Date().toISOString(),
+      };
+      if (kind === "json") {
+        downloadFile("nisar-investigation.json", reportJson(input), "application/json");
+      } else if (kind === "csv") {
+        downloadFile("nisar-investigation.csv", reportCsv(input), "text/csv");
+      } else {
+        downloadFile("nisar-investigation-report.html", reportHtml(input), "text/html");
+      }
+    },
+    [analysis, aoi, locationLabel, pairStats, urls, ai, viewer],
+  );
 
   const handleToggleDraw = useCallback(() => setDrawMode((d) => !d), []);
   const handleFit = useCallback(() => setFitKey((k) => k + 1), []);
@@ -1037,6 +1206,13 @@ export default function App() {
           <div className="vx-page__content">
             <Panel area="ai">
               {viewState.kind === "no-valid-pixels" && notice("explain")}
+              <AnalysisPanel
+                state={analysis}
+                polarisation={channel}
+                beforeDate={formatDate(viewState.dataset.viewer.earlier.startTime)}
+                afterDate={formatDate(viewState.dataset.viewer.later.startTime)}
+                onRun={handleRunAnalysis}
+              />
               <StatsPanel
                 dataset={viewState.dataset.viewer}
                 pol={channel}
@@ -1057,6 +1233,35 @@ export default function App() {
                   selectedScene={selectedScene}
                   locationLabel={locationLabel}
                 />
+              </DisclosureSection>
+              <DisclosureSection title="Export results" summary="JSON · CSV · report">
+                <div className="flex flex-wrap gap-2 px-1 pb-2">
+                  <button
+                    type="button"
+                    className="vx-button vx-button--ghost vx-button--compact"
+                    onClick={() => void handleExport("json")}
+                  >
+                    <FileJson size={14} aria-hidden /> JSON
+                  </button>
+                  <button
+                    type="button"
+                    className="vx-button vx-button--ghost vx-button--compact"
+                    onClick={() => void handleExport("csv")}
+                  >
+                    <FileSpreadsheet size={14} aria-hidden /> CSV
+                  </button>
+                  <button
+                    type="button"
+                    className="vx-button vx-button--ghost vx-button--compact"
+                    onClick={() => void handleExport("report")}
+                  >
+                    <FileText size={14} aria-hidden /> Report (print to PDF)
+                  </button>
+                </div>
+                <p className="vx-note px-1">
+                  Exports contain the displayed statistics, the calibrated analysis results when
+                  one has run, and the AI interpretation clearly labelled as generated.
+                </p>
               </DisclosureSection>
             </Panel>
             <Panel area="results" title="Results" scroll={false} className="vx-panel--table">

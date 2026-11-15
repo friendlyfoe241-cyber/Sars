@@ -1,0 +1,17 @@
+# Render Blueprint: the whole application as ONE web service.
+# The Python processing server (processing/serve.py) also hosts the built
+# frontend and the /api/explain-change endpoint, so no other service is needed.
+services:
+  - type: web
+    name: nisar-surface-change
+    runtime: python
+    buildCommand: npm ci && npm run build && pip install -r processing/requirements.txt
+    startCommand: python processing/serve.py --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: NASA_EARTHDATA_BEARER_TOKEN
+        sync: false # enter the token in the dashboard when prompted
+      - key: GEMINI_API_KEY
+        sync: false # Gemini key for "Explain this change"
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash

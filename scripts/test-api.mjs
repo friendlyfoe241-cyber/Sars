@@ -29,6 +29,21 @@ const validBody = {
   },
   dataset: { status: "nisar_quicklook", unit: "display DN", limitations: ["quicklook values are display units"] },
   statistics: { unit: "display DN", mean: -2.1, median: -3.0, p10: -40, p25: -12, p75: 8, p90: 30, validFraction: 0.967 },
+  analysis: {
+    eventType: "deforestation",
+    acquisitionDates: { before: "2026-10-25", after: "2026-11-06" },
+    processing: {
+      eventMethod: "deforestation",
+      methodParameters: { change_db: 3.0, direction: "decrease" },
+      unitsOfResults: "dB (10*log10 of linear power)",
+    },
+    statistics: { mean_difference_db: -0.39, median_difference_db: -0.37, valid_fraction: 0.99 },
+    areaEstimates: {
+      valid_analysed_area_km2: 1098.1,
+      candidate_changed_area_km2: 113.5,
+      candidate_changed_percent_of_valid: 10.3,
+    },
+  },
 };
 
 let failures = 0;
@@ -83,7 +98,9 @@ const mock = http.createServer((req, res) => {
         candidates: [{ content: { parts: [{ text: JSON.stringify({
           observed_signal: "The median difference is small.",
           possible_interpretation: "This could indicate stable conditions.",
+          supporting_evidence: "The median change of -0.37 dB is below the 3 dB threshold.",
           limitations: "Flood extent cannot be determined.",
+          recommended_next_investigation: "Compare a longer time series of acquisitions.",
         }) }] } }],
       }),
     );
@@ -98,7 +115,10 @@ res = makeRes();
 await handler({ method: "POST", body: validBody }, res);
 check(
   "mocked Gemini round-trip returns the structured explanation",
-  res.code === 200 && res.body?.explanation?.observedSignal === "The median difference is small.",
+  res.code === 200 &&
+    res.body?.explanation?.observedSignal === "The median difference is small." &&
+    res.body?.explanation?.supportingEvidence?.includes("-0.37 dB") &&
+    res.body?.explanation?.recommendedNextInvestigation?.includes("time series"),
   `got ${res.code} ${JSON.stringify(res.body)}`,
 );
 check(
@@ -108,6 +128,12 @@ check(
     JSON.stringify(captured?.body?.contents ?? "").includes("validPixelFraction") &&
     (captured?.body?.systemInstruction?.parts?.[0]?.text ?? "").includes("Never invent"),
   JSON.stringify(captured?.url),
+);
+check(
+  "Gemini request carries the calibrated analysis facts",
+  JSON.stringify(captured?.body?.contents ?? "").includes("candidateChangedAreaKm2") &&
+    JSON.stringify(captured?.body?.contents ?? "").includes("meanChangeDb"),
+  "analysis facts missing from prompt",
 );
 mock.close();
 

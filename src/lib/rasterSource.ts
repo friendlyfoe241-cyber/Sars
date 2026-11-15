@@ -85,6 +85,131 @@ export function quadFromBounds(bounds: { west: number; south: number; east: numb
   };
 }
 
+/** Solve a 3x3 system (Gaussian elimination with partial pivoting). */
+function solve3(m: number[][], v: number[]): [number, number, number] {
+  const a = m.map((row, i) => [...row, v[i]]);
+  for (let col = 0; col < 3; col++) {
+    let piv = col;
+    for (let r = col + 1; r < 3; r++) {
+      if (Math.abs(a[r][col]) > Math.abs(a[piv][col])) piv = r;
+    }
+    [a[col], a[piv]] = [a[piv], a[col]];
+    if (Math.abs(a[col][col]) < 1e-12) throw new Error("degenerate geometry");
+    for (let r = 0; r < 3; r++) {
+      if (r === col) continue;
+      const f = a[r][col] / a[col][col];
+      for (let c = col; c < 4; c++) a[r][c] -= f * a[col][c];
+    }
+  }
+  return [a[0][3] / a[0][0], a[1][3] / a[1][1], a[2][3] / a[2][2]];
+}
+
+/** Least-squares affine map (col, row) -> (lon, lat) through 4+ point pairs. */
+function fitAffine(
+  pairs: { px: [number, number]; geo: [number, number] }[],
+): (col: number, row: number) => [number, number] {
+  let cc = 0, cr = 0, rr = 0, cs = 0, rs = 0;
+  let clon = 0, rlon = 0, lon = 0, clat = 0, rlat = 0, lat = 0;
+  for (const { px: [c, r], geo: [lo, la] } of pairs) {
+    cc += c * c; cr += c * r; rr += r * r; cs += c; rs += r;
+    clon += c * lo; rlon += r * lo; lon += lo;
+    clat += c * la; rlat += r * la; lat += la;
+  }
+  const n = pairs.length;
+  const m = [[cc, cr, cs], [cr, rr, rs], [cs, rs, n]];
+  const [a, b, c0] = solve3(m, [clon, rlon, lon]);
+  const [d, e, f0] = solve3(m, [clat, rlat, lat]);
+  return (col, row) => [a * col + b * row + c0, d * col + e * row + f0];
+}
+
+/**
+ * Georeferencing derived from the scene footprint, for products that publish
+ * no KML ground overlay.  The quicklook renders the swath inside a lat/lon
+ * box with nodata (0) around it, so the valid region's four extreme points
+ * are the swath corners and correspond to the footprint's four extreme
+ * points (the rendering is north-up and monotone).  The least-squares affine
+ * through those pairs places the image to about a kilometre — validated
+ * against published KMLs on products that have them.
+ */
+export function deriveQuadFromImage(src: Raster, footprint: [number, number][]): Quad {
+  const { width, height, red } = src;
+  let valid = 0;
+  let west: [number, number] | null = null;
+  let east: [number, number] | null = null;
+  let north: [number, number] | null = null;
+  let south: [number, number] | null = null;
+  let westC = Infinity, eastC = -Infinity, northR = Infinity, southR = -Infinity;
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < width; col++) {
+      if (red[row * width + col] === 0) continue;
+      valid++;
+      if (col < westC) { westC = col; west = [col, row]; }
+      if (col > eastC) { eastC = col; east = [col, row]; }
+      if (row < northR) { northR = row; north = [col, row]; }
+      if (row > southR) { southR = row; south = [col, row]; }
+    }
+  }
+  const fraction = valid / (width * height);
+  if (fraction < 0.1 || fraction > 0.9) {
+    throw new Error("quicklook mask is not a swath inside nodata; cannot derive georeferencing");
+  }
+  const imageCorners = [west, east, north, south];
+  if (
+    imageCorners.some((p) => p === null) ||
+    new Set(imageCorners.map((p) => `${p![0]},${p![1]}`)).size !== 4
+  ) {
+    throw new Error("quicklook swath corners are not distinct; cannot derive georeferencing");
+  }
+
+  const same = (a: [number, number], b: [number, number]) => a[0] === b[0] && a[1] === b[1];
+  const ring =
+    footprint.length > 4 && same(footprint[0], footprint[footprint.length - 1])
+      ? footprint.slice(0, -1)
+      : footprint;
+  if (ring.length < 4) throw new Error("scene footprint has too few corners");
+  const extreme = (fn: (p: [number, number]) => number): [number, number] =>
+    ring.reduce((best, p) => (fn(p) < fn(best) ? p : best), ring[0]);
+  const fWest = extreme((p) => p[0]);
+  const fEast = extreme((p) => -p[0]);
+  const fNorth = extreme((p) => -p[1]);
+  const fSouth = extreme((p) => p[1]);
+  const fpCorners = [fWest, fEast, fNorth, fSouth];
+  if (new Set(fpCorners.map(([lo, la]) => `${lo},${la}`)).size !== 4) {
+    throw new Error("scene footprint corners are not distinct");
+  }
+
+  const at = fitAffine([
+    { px: west!, geo: fWest },
+    { px: east!, geo: fEast },
+    { px: north!, geo: fNorth },
+    { px: south!, geo: fSouth },
+  ]);
+  const quad: Quad = {
+    nw: at(0, 0),
+    ne: at(width - 1, 0),
+    se: at(width - 1, height - 1),
+    sw: at(0, height - 1),
+  };
+
+  // Plausibility: the rendering box may extend past the swath, but not wildly.
+  const lons = ring.map((p) => p[0]);
+  const lats = ring.map((p) => p[1]);
+  const [minLon, maxLon] = [Math.min(...lons), Math.max(...lons)];
+  const [minLat, maxLat] = [Math.min(...lats), Math.max(...lats)];
+  const spanLon = maxLon - minLon || 1;
+  const spanLat = maxLat - minLat || 1;
+  for (const k of CORNERS) {
+    const [lo, la] = quad[k];
+    if (
+      lo < minLon - 0.75 * spanLon || lo > maxLon + 0.75 * spanLon ||
+      la < minLat - 0.75 * spanLat || la > maxLat + 0.75 * spanLat
+    ) {
+      throw new Error("derived georeferencing is implausible");
+    }
+  }
+  return quad;
+}
+
 // ---------------------------------------------------------------------------
 // Resampling onto the AOI grid (inverse bilinear mapping)
 // ---------------------------------------------------------------------------
@@ -408,7 +533,12 @@ interface SceneGrid {
   raster: Raster;
   /** georeferencing the grid was resampled with */
   quad: Quad;
+  /** whether the quad came from the published KML or was derived */
+  georef: "published" | "derived";
 }
+
+/** Per-scene georeferencing provenance (first determination wins). */
+const sceneGeoref = new Map<string, "published" | "derived">();
 
 function loadSceneGridEntry(
   scene: NisarScene,
@@ -421,13 +551,24 @@ function loadSceneGridEntry(
     gridCache,
     `grid:${scene.id}|${pol}|${aoiKey(aoi)}|${outWidth}|${METHOD_VERSION}`,
     async (sig) => {
-      const [src, kmlText] = await Promise.all([
-        loadSourceRaster(scene, pol, sig),
-        loadSceneKml(scene, pol, sig),
-      ]);
-      const quad = parseKmlQuad(kmlText);
+      const src = await loadSourceRaster(scene, pol, sig);
+      let quad: Quad;
+      let georef: "published" | "derived";
+      try {
+        const kmlText = await loadSceneKml(scene, pol, sig);
+        quad = parseKmlQuad(kmlText);
+        georef = "published";
+      } catch (err) {
+        if (isAbortError(err) || sig.aborted) throw err;
+        // Some products (e.g. provisional releases) publish no KML ground
+        // overlay; the swath corners in the quicklook determine the same
+        // georeferencing from the scene footprint.
+        quad = deriveQuadFromImage(src, scene.footprint);
+        georef = "derived";
+      }
+      sceneGeoref.set(scene.id, georef);
       const index = sampleIndexFor(quad, aoi, outWidth, src.width, src.height);
-      return { raster: sampleToGrid(src, index), quad };
+      return { raster: sampleToGrid(src, index), quad, georef };
     },
     signal,
   );
@@ -522,7 +663,7 @@ const QUICKLOOK_LIMITATIONS = (gridPixelM: number) => [
   "Displayed values are 8-bit quicklook renderings (display DN), not calibrated backscatter in dB.",
   "The change layer is a difference of those display values; it preserves the sign of change under the shared quicklook rendering but its magnitude is not calibrated backscatter.",
   `Source quicklooks are about 180 m per pixel and are resampled to the AOI grid (${gridPixelM} m per pixel).`,
-  "Calibrated gamma-0 backscatter rasters (dB) require the GCOV products (Earthdata login); see scripts/prepare_nisar_gcov.py.",
+  "Calibrated gamma-0 backscatter (dB) is produced by the Python analysis pipeline — see the Calibrated analysis panel.",
 ];
 
 function baselineDays(a: string, b: string): number {
@@ -648,7 +789,11 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
         loadSceneGridEntry(before, pol, aoi, outWidth, signal),
         loadSceneGridEntry(after, pol, aoi, outWidth, signal),
       ]);
-      if (!quadsAgree(b.quad, a.quad)) {
+      // Published KMLs are identical files; derived quads only need to agree
+      // to the accuracy of the derivation (~1 km).
+      const tolerance =
+        b.georef === "derived" || a.georef === "derived" ? 0.05 : 1e-4;
+      if (!quadsAgree(b.quad, a.quad, tolerance)) {
         throw new Error("The two quicklooks have different georeferencing.");
       }
       return { before: b.raster, after: a.raster };
@@ -706,6 +851,15 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
   }
 
   const calibrated = encoding.type === "db_linear";
+  if (
+    !preparedMatches &&
+    (sceneGeoref.get(before.id) === "derived" || sceneGeoref.get(after.id) === "derived")
+  ) {
+    limitations = [
+      ...limitations,
+      "These quicklooks publish no KML ground overlay, so their georeferencing is derived from the scene footprints; placement is accurate to about 1 km.",
+    ];
+  }
   const layers: Record<string, string> = {};
   for (const pol of channels) layers[pol] = layerLabel(pol);
 

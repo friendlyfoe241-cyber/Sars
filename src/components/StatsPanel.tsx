@@ -7,7 +7,9 @@ import { KeyRow, Section, Spinner } from "./ui";
 export interface AiExplanation {
   observedSignal: string;
   possibleIndication: string;
+  supportingEvidence: string;
   limitations: string;
+  recommendedNextInvestigation: string;
 }
 
 export interface AiState {
@@ -86,14 +88,18 @@ export default function StatsPanel({ dataset, pol, summary, ai, onExplain }: Sta
               [
                 ["Observed signal", ai.explanation.observedSignal],
                 ["Possible indication", ai.explanation.possibleIndication],
-                ["Cannot be concluded", ai.explanation.limitations],
+                ["Supporting evidence", ai.explanation.supportingEvidence],
+                ["Limitations", ai.explanation.limitations],
+                ["Recommended next investigation", ai.explanation.recommendedNextInvestigation],
               ] as const
-            ).map(([label, text]) => (
-              <div key={label}>
-                <div className="vx-eyebrow">{label}</div>
-                <p className="m-0 mt-1 text-[13px] leading-5 text-vx-text">{text}</p>
-              </div>
-            ))}
+            )
+              .filter(([, text]) => text)
+              .map(([label, text]) => (
+                <div key={label}>
+                  <div className="vx-eyebrow">{label}</div>
+                  <p className="m-0 mt-1 text-[13px] leading-5 text-vx-text">{text}</p>
+                </div>
+              ))}
           </div>
         )}
       </Section>

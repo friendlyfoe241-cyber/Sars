@@ -8,3 +8,7 @@ scripts/.cache
 scripts/.cache-gcov
 __pycache__
 tsconfig.tsbuildinfo
+.venv-py/
+processing/out/
+processing/cache/
+

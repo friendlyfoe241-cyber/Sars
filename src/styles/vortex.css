@@ -294,6 +294,13 @@
 .vx-note + .vx-note {
   margin-top: 8px;
 }
+.vx-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
 
 .vx-kv {
   display: grid;
@@ -795,7 +802,11 @@
 .vx-scroll {
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  /* NOT `contain`: a panel body that fits its content (no scrollable
+     overflow) must still let the wheel chain to the page scroller on short
+     screens and phones.  With `contain` such a box becomes a dead scroll
+     boundary and eats every wheel/touch scroll over it. */
+  overscroll-behavior: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
 }
