@@ -177,6 +177,7 @@ export default function App() {
   } | null>(null);
 
   const searchSeq = useRef(0);
+  const transientFailures = useRef<Map<string, number>>(new Map());
   const pairSeq = useRef(0);
   const searchAbort = useRef<AbortController | null>(null);
   const pairAbort = useRef<AbortController | null>(null);
@@ -536,23 +537,33 @@ export default function App() {
           },
         });
         if (seq !== pairSeq.current) return;
+        transientFailures.current.delete(scenePairId(before.id, after.id));
         setPairState({ status: "ready", key, dataset: latest ?? dataset });
         setPol(Object.keys(dataset.perPol)[0] ?? "");
       } catch (err) {
         if (seq !== pairSeq.current || isAbortError(err)) return;
-        const metadataOnly = err instanceof RasterUnavailableError;
+        const pairId = scenePairId(before.id, after.id);
+        const transient = isTransientFailure(err);
+        const failures = transient ? (transientFailures.current.get(pairId) ?? 0) + 1 : 0;
+        if (transient) transientFailures.current.set(pairId, failures);
+        const metadataOnly = err instanceof RasterUnavailableError || failures >= 3;
         if (metadataOnly) {
-          setUnavailablePairs((cur) => new Set(cur).add(scenePairId(before.id, after.id)));
+          setUnavailablePairs((cur) => new Set(cur).add(pairId));
         }
         setPairState({
           status: "error",
           key,
           metadataOnly,
-          message: isTransientFailure(err)
-            ? PAIR_LOAD_RETRY_MESSAGE
-            : err instanceof Error
+          message:
+            err instanceof RasterUnavailableError
               ? err.message
-              : "The rasters for this pair could not be prepared.",
+              : metadataOnly
+                ? METADATA_ONLY_MESSAGE
+                : transient
+                  ? PAIR_LOAD_RETRY_MESSAGE
+                  : err instanceof Error
+                    ? err.message
+                    : "The rasters for this pair could not be prepared.",
         });
       }
     },
