@@ -136,16 +136,20 @@ export function reportHtml(input: ReportInput): string {
   ]));
 
   if (a) {
-    const dates = a.acquisitionDates;
+    const dates = a.acquisitionDates ?? { before: "", after: "" };
+    const ob = a.observations?.before;
+    const oa = a.observations?.after;
+    const pm = a.productMetadata;
+    const text = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
     sections.push("<h2>Observations (live calibrated analysis)</h2>");
     sections.push(kvTable([
-      ["Before acquisition", `${dates.before} · ${a.observations.before.id}`],
-      ["After acquisition", `${dates.after} · ${a.observations.after.id}`],
-      ["Product", `${a.productMetadata.productType} · ${a.productMetadata.processingLevel}`],
-      ["Frequency / polarisation", `${a.productMetadata.frequencyBand} · ${a.productMetadata.polarisation}`],
-      ["Maturity", a.observations.before.maturity],
+      ["Before acquisition", `${text(dates.before)} · ${text(ob?.id)}`],
+      ["After acquisition", `${text(dates.after)} · ${text(oa?.id)}`],
+      ["Product", `${text(pm?.productType)} · ${text(pm?.processingLevel)}`],
+      ["Frequency / polarisation", `${text(pm?.frequencyBand)} · ${text(pm?.polarisation)}`],
+      ["Maturity", text(ob?.maturity)],
       ["Orbit / track / frame",
-        `${a.observations.before.orbit_direction.toLowerCase()} / ${a.observations.before.track} / ${a.observations.before.frame}`],
+        `${text(ob?.orbit_direction?.toLowerCase())} / ${text(ob?.track)} / ${text(ob?.frame)}`],
     ]));
     sections.push("<h2>Calibrated results (processing pipeline)</h2>");
     sections.push(kvTable([
@@ -153,7 +157,9 @@ export function reportHtml(input: ReportInput): string {
       ["Threshold / direction", `${thresholdText(a)} · ${directionWord(analysisDirection(a))}`],
       ["Valid analysed area", n(a.areaEstimates?.valid_analysed_area_km2, 3, " km²")],
       ["Candidate changed area",
-        `${n(a.areaEstimates?.candidate_changed_area_km2, 4, " km²")} (${n(a.areaEstimates?.candidate_changed_area_hectares, 2, " ha")})`],
+        finite(a.areaEstimates?.candidate_changed_area_km2)
+          ? `${n(a.areaEstimates.candidate_changed_area_km2, 4, " km²")} (${n(a.areaEstimates.candidate_changed_area_hectares, 2, " ha")})`
+          : "Not available"],
       ["Candidate changed (valid area)", n(a.areaEstimates?.candidate_changed_percent_of_valid, 3, "%")],
       ["Valid pixels", finite(a.areaEstimates?.valid_pixels) ? String(a.areaEstimates.valid_pixels) : "Not available"],
       ["Mean change (gamma-0)", n(a.statistics?.mean_difference_db, 3, " dB")],
