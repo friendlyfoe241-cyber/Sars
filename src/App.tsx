@@ -11,6 +11,7 @@ import {
   type AnalysisRequest,
   type AnalysisResult,
 } from "./lib/analysisApi";
+import { changeLabel, methodLabel, neutralResult } from "./lib/analysisWording";
 import { downloadFile, reportCsv, reportHtml, reportJson, type ReportInput } from "./lib/exportReport";
 import { DateFilter, ManualPair, PairSummary, SuggestedPairs } from "./components/Catalogue";
 import ComparePanel from "./components/ComparePanel";
@@ -100,10 +101,10 @@ const METADATA_ONLY_MESSAGE =
 function analysisFacts(result?: AnalysisResult) {
   if (!result) return null;
   return {
-    eventType: result.eventType,
+    eventType: changeLabel(result),
     acquisitionDates: result.acquisitionDates,
     processing: {
-      eventMethod: result.processing.eventMethod,
+      eventMethod: methodLabel(result.processing.eventMethod),
       methodParameters: result.processing.methodParameters,
       unitsOfResults: result.processing.unitsOfResults,
     },
@@ -728,10 +729,10 @@ export default function App() {
         areaLabel: locationLabel || (aoi ? formatAoi(aoi) : ""),
         bbox: aoi ? [aoi.west, aoi.south, aoi.east, aoi.north] : null,
         eventLabel: result
-          ? "Potential vegetation disturbance (candidate deforestation-related change)"
-          : "Surface change (quicklook comparison)",
+          ? changeLabel(result)
+          : "Surface change (quicklook comparison, display brightness, not calibrated)",
         pairStats,
-        analysis: result,
+        analysis: result ? neutralResult(result) : null,
         images:
           kind === "report"
             ? {

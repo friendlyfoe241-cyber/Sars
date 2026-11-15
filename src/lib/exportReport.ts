@@ -46,7 +46,7 @@ export function reportCsv(input: ReportInput): string {
   }
   if (input.analysis) {
     parts.push("");
-    parts.push(`# calibrated analysis ${input.analysis.analysisId} (${input.analysis.eventType})`);
+    parts.push(`# calibrated analysis ${input.analysis.analysisId},${csvCell(input.eventLabel)}`);
     parts.push(tableToCsv(input.analysis.backscatterComparison));
     parts.push("");
     parts.push(tableToCsv(input.analysis.changeSummary));
@@ -97,7 +97,7 @@ export function reportHtml(input: ReportInput): string {
   sections.push(kvTable([
     ["Area of interest", input.areaLabel],
     ["Bounding box", input.bbox ? input.bbox.map((v) => v.toFixed(4)).join(", ") : "—"],
-    ["Event type", input.eventLabel],
+    ["Change examined", input.eventLabel],
     ["Generated", input.generatedUtc],
   ]));
 
