@@ -64,7 +64,83 @@ function MetricTable({ rows }: { rows: { metric: string; value: number | string 
   );
 }
 
+function PlainTable({ rows }: { rows: { label: string; value: string; hint: string }[] }) {
+  return (
+    <dl className="vx-plain">
+      {rows.map((r) => (
+        <div key={r.label} className="vx-plain__row">
+          <dt>{r.label}</dt>
+          <dd>
+            <strong>{r.value}</strong>
+            <span className="vx-itable__sub"> {r.hint}</span>
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function ResultBody({ result }: { result: AnalysisResult }) {
+  const a = result.areaEstimates;
+  const s = result.statistics;
+  const pct = a.candidate_changed_percent_of_valid;
+  const measuredShare = (a.valid_analysed_area_km2 / a.aoi_area_km2) * 100;
+  const overall =
+    Math.abs(s.mean_difference_db) < 0.5
+      ? "stayed about the same"
+      : s.mean_difference_db < 0
+        ? "got weaker"
+        : "got stronger";
+  return (
+    <>
+      <div className="vx-notice" data-tone="info">
+        <h4>In plain words</h4>
+        <p>
+          About <strong>{pct.toFixed(1)}%</strong> of the area we could measure (
+          <strong>{formatPlain(a.candidate_changed_area_km2)} km²</strong>) showed a clear drop in radar
+          signal between the two dates. For forests, a drop like this <em>can</em> mean vegetation was
+          removed or thinned, but it can also come from soil moisture, seasons or flooding, so treat
+          these spots as places worth checking, not confirmed deforestation.
+        </p>
+        <p className="mt-2">
+          Across the whole area, the radar signal on average {overall} ({formatPlain(s.mean_difference_db)} dB).
+        </p>
+      </div>
+
+      <PlainTable
+        rows={[
+          { label: "Area you selected", value: `${formatPlain(a.aoi_area_km2)} km²`, hint: "" },
+          {
+            label: "Area we could measure",
+            value: `${formatPlain(a.valid_analysed_area_km2)} km²`,
+            hint: `(${measuredShare.toFixed(0)}%, the rest had no usable data)`,
+          },
+          {
+            label: "Area with a clear signal drop",
+            value: `${formatPlain(a.candidate_changed_area_km2)} km²`,
+            hint: `(${formatCount(Math.round(a.candidate_changed_area_hectares))} hectares), possible vegetation disturbance, an estimate`,
+          },
+          {
+            label: "Share of measured area affected",
+            value: `${pct.toFixed(1)}%`,
+            hint: "estimate, depends on the 3 dB cut-off",
+          },
+        ]}
+      />
+
+      <details className="mt-3">
+        <summary className="vx-note" style={{ cursor: "pointer" }}>
+          Show technical details
+        </summary>
+        <div className="mt-2">
+          <TechnicalBody result={result} />
+        </div>
+      </details>
+    </>
+  );
+}
+
+function TechnicalBody({ result }: { result: AnalysisResult }) {
   const a = result.areaEstimates;
   const s = result.statistics;
   return (
