@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import platform
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
@@ -184,27 +185,72 @@ def run_from_files(request: AnalysisRequest, before_tif, after_tif, out_dir, **k
                   "before_file": str(before_tif), "after_file": str(after_tif)}, **kw)
 
 
+def _locate(request: AnalysisRequest, *, search=discovery.search_asf, cmr=discovery.cmr_lookup,
+            stage=None) -> tuple[SelectedPair, dict, list]:
+    """Catalogue search -> pair selection -> CMR verification (metadata only)."""
+    tol = timedelta(days=request.date_tolerance_days)
+    start = datetime.combine(request.before_date, time.min, tzinfo=timezone.utc) - tol
+    end = datetime.combine(request.after_date, time.max, tzinfo=timezone.utc) + tol
+    if stage:
+        stage("searching the ASF catalogue")
+    granules = search(request.bbox, start, end)
+    selection = select_pair(granules, request)
+    if stage:
+        stage("verifying granules in CMR")
+    cmr_info = {"before": cmr(selection.before), "after": cmr(selection.after)}
+    warnings_ = [f"CMR start time for {role} granule differs from ASF's."
+                 for role, info in cmr_info.items() if info.get("start_time_matches_asf") is False]
+    return selection, cmr_info, warnings_
+
+
+def _retrieve_pair(selection: SelectedPair, cmr_info: dict, request: AnalysisRequest,
+                   cache: Path, retrieve) -> tuple:
+    """Retrieve both acquisitions concurrently: the two Harmony jobs are
+    independent, so running them together roughly halves the wall-clock."""
+    pol = request.polarisation
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        fb = pool.submit(retrieve, selection.before, request.bbox, pol, cache, cmr_info["before"])
+        fa = pool.submit(retrieve, selection.after, request.bbox, pol, cache, cmr_info["after"])
+        tif_b, info_b = fb.result()
+        tif_a, info_a = fa.result()
+    return tif_b, tif_a, info_b, info_a
+
+
+def prefetch_retrievals(request: AnalysisRequest, *, cache_dir=None, search=discovery.search_asf,
+                        cmr=discovery.cmr_lookup, retrieve=retrieval.retrieve_subset) -> dict:
+    """Warm the download cache for one request (no analysis, no output files).
+
+    A later run_analysis with the same request finds the GeoTIFFs in the cache
+    and completes in seconds.  Errors are raised to the caller, which is
+    expected to treat this as a best-effort warm-up.
+    """
+    request.validate()
+    _require_supported(request.event_type)
+    selection, cmr_info, _ = _locate(request, search=search, cmr=cmr)
+    cache = Path(cache_dir) if cache_dir else Path(".cache")
+    cache.mkdir(parents=True, exist_ok=True)
+    tif_b, tif_a, info_b, info_a = _retrieve_pair(selection, cmr_info, request, cache, retrieve)
+    return {"before": info_b, "after": info_a,
+            "before_file": Path(tif_b).name, "after_file": Path(tif_a).name}
+
+
 def run_analysis(request: AnalysisRequest, out_dir, *, cache_dir=None, pixel_csv_max=None,
                  write_geotiff=True, search=discovery.search_asf, cmr=discovery.cmr_lookup,
-                 retrieve=retrieval.retrieve_subset, reader=raster.read_geotiff) -> RunResult:
+                 retrieve=retrieval.retrieve_subset, reader=raster.read_geotiff,
+                 stage=None) -> RunResult:
     """Full pipeline against the live NASA services."""
     request.validate()
     _require_supported(request.event_type)  # fail early for unsupported events (no network use)
 
-    tol = timedelta(days=request.date_tolerance_days)
-    start = datetime.combine(request.before_date, time.min, tzinfo=timezone.utc) - tol
-    end = datetime.combine(request.after_date, time.max, tzinfo=timezone.utc) + tol
-    granules = search(request.bbox, start, end)
-
-    selection = select_pair(granules, request)
-    cmr_info = {"before": cmr(selection.before), "after": cmr(selection.after)}
-    warnings_ = [f"CMR start time for {role} granule differs from ASF's."
-                 for role, info in cmr_info.items() if info.get("start_time_matches_asf") is False]
+    selection, cmr_info, warnings_ = _locate(request, search=search, cmr=cmr, stage=stage)
 
     cache = Path(cache_dir) if cache_dir else Path(out_dir) / ".cache"
     pol = request.polarisation
-    tif_b, info_b = retrieve(selection.before, request.bbox, pol, cache, cmr_info["before"])
-    tif_a, info_a = retrieve(selection.after, request.bbox, pol, cache, cmr_info["after"])
+    if stage:
+        stage(f"retrieving calibrated {pol} data from NASA Harmony…")
+    tif_b, tif_a, info_b, info_a = _retrieve_pair(selection, cmr_info, request, cache, retrieve)
+    if stage:
+        stage("processing measurements")
     before, after, decimation = _read_pair(reader, tif_b, tif_a, request.input_units)
 
     text = selection.explanation + warnings_

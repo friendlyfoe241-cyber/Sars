@@ -20,6 +20,7 @@ import argparse
 import json
 import re
 import threading
+import time
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -33,7 +34,7 @@ from nisar_change.config import AnalysisRequest, DIRECTIONS, POLARISATIONS, Thre
 from nisar_change.errors import (DiscoveryError, IncompatibleDataError, InvalidRequestError,
                                  MissingDependencyError, NoSuitableObservationsError,
                                  RetrievalError, UnsupportedEventError)
-from nisar_change.pipeline import run_analysis
+from nisar_change.pipeline import prefetch_retrievals, run_analysis
 from nisar_change.schema import build_result
 
 import explain as explain_service
@@ -63,12 +64,19 @@ class Job:
         self.request = request
         self.status = "queued"
         self.progress = "queued"
+        self.percent = 0.0
         self.result = None
         self.error = None  # {"code", "message", "reasons"?}
         self.out_dir = OUT_DIR / self.id
 
+    def update(self, text: str, percent: float | None = None) -> None:
+        self.progress = text
+        if percent is not None:
+            self.percent = max(self.percent, float(percent))  # never goes backwards
+
     def view(self) -> dict:
-        out = {"analysisId": self.id, "status": self.status, "progress": self.progress}
+        out = {"analysisId": self.id, "status": self.status, "progress": self.progress,
+               "percent": round(self.percent, 1)}
         if self.result is not None:
             out["result"] = self.result
             out["artifactsBase"] = f"/api/artifacts/{self.id}"
@@ -81,6 +89,13 @@ JOBS: dict[str, Job] = {}
 JOBS_LOCK = threading.Lock()
 EXECUTOR = ThreadPoolExecutor(max_workers=1)
 
+# Cache warm-up runs on its own worker so it can never delay a real analysis;
+# memory stays bounded because prefetching only downloads (no raster work).
+PREFETCH_EXECUTOR = ThreadPoolExecutor(max_workers=1)
+PREFETCH_LOCK = threading.Lock()
+PREFETCHED: dict[str, float] = {}   # request fingerprint -> last warm-up time
+PREFETCH_TTL_S = 30 * 60
+
 
 def _safe(message: str, job: Job) -> str:
     """Strip local filesystem paths from error text."""
@@ -92,17 +107,19 @@ def _safe(message: str, job: Job) -> str:
 def _run(job: Job) -> None:
     job.status = "running"
     req = job.request
+    retrieve_pct: dict[str, float] = {}   # granule id -> Harmony percent
+    floor = 12.0                           # retrieval occupies 12..88 overall
 
-    def stage(text):
-        job.progress = text
+    def stage(text, percent=None):
+        job.update(text, percent)
 
     def search(bbox, start, end):
-        stage("searching the ASF catalogue")
+        stage("searching the ASF catalogue", 4)
         from nisar_change import discovery
         return discovery.search_asf(bbox, start, end)
 
     def cmr(granule):
-        stage("verifying granules in CMR")
+        stage("verifying granules in CMR", 9)
         from nisar_change import discovery
         return discovery.cmr_lookup(granule)
 
@@ -110,23 +127,30 @@ def _run(job: Job) -> None:
         from nisar_change import retrieval
 
         def prog(pct):
-            suffix = f" — Harmony reports {pct}% complete" if pct is not None else "…"
-            stage(f"retrieving calibrated {pol} data from NASA Harmony{suffix}")
+            nonlocal floor
+            retrieve_pct[granule.id] = float(pct or 0)
+            vals = list(retrieve_pct.values())
+            agg = 12.0 + 76.0 * (sum(vals) / max(len(vals), 1)) / 100.0
+            floor = max(floor, agg)
+            finished = sum(1 for v in vals if v >= 100)
+            stage(f"retrieving calibrated {pol} data from NASA Harmony — {floor:.0f}% "
+                  f"complete ({finished} of 2 downloads finished)", floor)
 
-        stage(f"retrieving calibrated {pol} data from NASA Harmony…")
+        stage(f"retrieving calibrated {pol} data from NASA Harmony…", floor)
         return retrieval.retrieve_subset(granule, bbox, pol, cache, cmr_info, on_progress=prog)
 
     def reader(path, units, decimate=1):
-        stage("processing measurements")
+        stage("processing measurements", 90)
         from nisar_change import raster
         return raster.read_geotiff(path, units, decimate=decimate)
 
     try:
         run = run_analysis(req, job.out_dir, cache_dir=CACHE_DIR, pixel_csv_max=20000,
-                           search=search, cmr=cmr, retrieve=retrieve, reader=reader)
-        stage("finalising results")
+                           search=search, cmr=cmr, retrieve=retrieve, reader=reader, stage=stage)
+        stage("finalising results", 97)
         job.result = build_result(job.id, req, run)
         job.status = "succeeded"
+        job.update("done", 100)
     except (InvalidRequestError, UnsupportedEventError, NoSuitableObservationsError,
             IncompatibleDataError, DiscoveryError, RetrievalError,
             MissingDependencyError) as exc:
@@ -170,6 +194,18 @@ def parse_request(body: dict) -> AnalysisRequest:
     )
     request.validate()
     return request
+
+
+def _fingerprint(request: AnalysisRequest) -> str:
+    return (f"{request.bbox}|{request.before_date}|{request.after_date}|"
+            f"{request.polarisation}|{request.thresholds.change_db}|{request.thresholds.direction}")
+
+
+def _prefetch_run(request: AnalysisRequest) -> None:
+    try:
+        prefetch_retrievals(request, cache_dir=CACHE_DIR)
+    except Exception:
+        traceback.print_exc()  # best-effort warm-up only
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -281,6 +317,9 @@ class Handler(BaseHTTPRequestHandler):
         if parts[:2] == ["api", "explain-change"] and len(parts) == 2:
             self._handle_explain()
             return
+        if parts[:2] == ["api", "analyze"] and len(parts) == 3 and parts[2] == "prefetch":
+            self._handle_prefetch()
+            return
         if parts[:2] != ["api", "analyze"] or len(parts) != 2:
             self._error(404, "not found")
             return
@@ -304,6 +343,35 @@ class Handler(BaseHTTPRequestHandler):
         EXECUTOR.submit(_run, job)
         self._send(202, {"analysisId": job.id, "status": job.status,
                          "statusUrl": f"/api/analyze/{job.id}"})
+
+    def _handle_prefetch(self):
+        """Warm the download cache for a pair the user is looking at, so the
+        real analysis later finds the data ready.  Best-effort: errors are
+        logged and never surfaced (the Run button remains the real path)."""
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > MAX_BODY:
+            self._error(400, "request body missing or too large")
+            return
+        try:
+            body = json.loads(self.rfile.read(length))
+        except ValueError:
+            self._error(400, "request body is not valid JSON")
+            return
+        try:
+            request = parse_request(body)
+        except InvalidRequestError as exc:
+            self._error(400, str(exc))
+            return
+        fp = _fingerprint(request)
+        now = time.time()
+        with PREFETCH_LOCK:
+            last = PREFETCHED.get(fp)
+            if last is not None and now - last < PREFETCH_TTL_S:
+                self._send(200, {"status": "skipped", "reason": "already prepared recently"})
+                return
+            PREFETCHED[fp] = now
+        PREFETCH_EXECUTOR.submit(_prefetch_run, request)
+        self._send(202, {"status": "prefetching"})
 
     def _handle_explain(self):
         length = int(self.headers.get("Content-Length") or 0)

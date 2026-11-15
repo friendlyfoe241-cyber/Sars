@@ -91,7 +91,7 @@ disturbance** and carry explicit limitations.
 | `NASA_EARTHDATA_BEARER_TOKEN` | Python pipeline (env or `.env.local`) | authenticated NISAR retrieval via NASA Harmony |
 | `GEMINI_API_KEY` | Vercel/server | Gemini "Explain this change" (server-side only) |
 | `GEMINI_MODEL` | Vercel/server | optional, default `gemini-3-flash-preview` (auto-falls back to `gemini-3.1-flash-lite` if a model id is retired) |
-| `VITE_ANALYSIS_API` | build time | analysis worker URL for a cross-origin worker (default: same origin; dev uses the Vite proxy to `127.0.0.1:8788`) |
+| `VITE_ANALYSIS_API` | build time | only for the optional cross-origin split; leave unset on Render (everything is same origin) |
 | `NISAR_MAX_ANALYSIS_PIXELS` | Python worker | optional, default `6000000`; larger areas are analysed on a subsampled grid (see below) |
 
 No Supabase or database is used; no SQL setup is necessary. Never commit
@@ -112,21 +112,39 @@ estimates.
 
 ## Deployment
 
-**Render (everything in one service).** The repository contains a
+**Recommended: everything on Render, one service.**  The repository contains a
 `render.yaml` blueprint: create a *Blueprint* instance from the repository (or
 a *Web Service* with the same settings) — build `npm ci && npm run build &&
 pip install -r processing/requirements.txt`, start `python
 processing/serve.py --host 0.0.0.0 --port $PORT`, health check `/api/health`.
 The Python server hosts the built web app, the analysis API and the
 `/api/explain-change` endpoint.  Set `NASA_EARTHDATA_BEARER_TOKEN` and
-`GEMINI_API_KEY` as service secrets.
+`GEMINI_API_KEY` as service secrets and leave `VITE_ANALYSIS_API` unset —
+everything is served from one origin.
 
-**Vercel (web + Gemini) + separate worker.** Import the repository in Vercel
-(Vite preset) with `GEMINI_API_KEY` set; run `processing/serve.py` on any
-Python host with `NASA_EARTHDATA_BEARER_TOKEN` and set `VITE_ANALYSIS_API` to
-that worker's public HTTPS URL, then redeploy.  Serverless functions are not
-suitable for Harmony jobs (minutes-long, large downloads); keep the pipeline
-as a worker.
+Two operational notes:
+
+- Use a paid instance for demos.  The free tier sleeps after idle time, which
+  adds a ~30-60 s cold start to the next visit.
+- Peak worker memory is ~310 MB (the analysis grid is bounded), so the
+  512 MB instance type is sufficient.
+
+**Optional split (static web elsewhere + worker on Render).**  Run
+`processing/serve.py` on any Python host with `NASA_EARTHDATA_BEARER_TOKEN`,
+then set `VITE_ANALYSIS_API` to that worker's public HTTPS URL at build time.
+Serverless functions are not suitable for Harmony jobs (minutes-long, large
+downloads) — keep the pipeline as a worker.
+
+### Retrieval speed
+
+The two Harmony subset jobs of a pair run **concurrently** (roughly halving
+the retrieval wall-clock), and the worker **warms its download cache in the
+background** when the Explain step opens on a pair — by the time
+"Run calibrated analysis" is pressed the data is usually ready and the analysis
+completes in seconds.  The warm-up is best-effort and deduplicated (it does
+spend NASA Harmony quota for the pair on screen; see `PREFETCH_TTL_S` in
+`processing/serve.py`).  Repeat runs of the same area and dates are served
+from the cache entirely.
 
 ## Known limitations
 

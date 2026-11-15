@@ -160,8 +160,23 @@ export default function AnalysisPanel({
       )}
 
       {state.status === "running" && (
-        <div className="vx-note" role="status">
-          <Spinner /> {state.job?.progress ?? "starting"}…
+        <div role="status">
+          <div
+            className="vx-progress mb-2"
+            role="progressbar"
+            aria-label="Calibrated analysis progress"
+            aria-valuenow={Math.round(state.job?.percent ?? 0)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div
+              className="vx-progress__fill"
+              style={{ width: `${Math.max(2, Math.min(100, state.job?.percent ?? 2))}%` }}
+            />
+          </div>
+          <div className="vx-note">
+            <Spinner /> {state.job?.progress ?? "starting"}…
+          </div>
         </div>
       )}
 

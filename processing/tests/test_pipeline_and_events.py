@@ -110,3 +110,56 @@ def test_decimation_is_an_exact_subsample(tmp_path):
     sub = read_geotiff(path, "linear", decimate=3)
     assert np.array_equal(sub.data, full.data[::3, ::3])
     assert sub.transform == (60.0, 0.0, 500000.0, 0.0, -60.0, 9000000.0)
+
+
+def _two_granules():
+    return [granule("BEFORE_G", "2026-10-25"), granule("AFTER_G", "2026-11-06")]
+
+
+def _cmr_ok(g):
+    return {"granule_concept_id": f"G-{g.id}", "collection_concept_id": "C1",
+            "start_time_matches_asf": True}
+
+
+def test_two_retrievals_run_concurrently(tmp_path):
+    """The before/after Harmony jobs must overlap, not run one after the other."""
+    import threading
+    import time as _time
+
+    b, a = synthetic_pair()
+    state = {"running": 0, "max": 0}
+    lock = threading.Lock()
+
+    def slow_retrieve(g, bbox, pol, cache, info):
+        with lock:
+            state["running"] += 1
+            state["max"] = max(state["max"], state["running"])
+        _time.sleep(0.25)
+        with lock:
+            state["running"] -= 1
+        return Path(g.id + ".tif"), {"job_id": "J"}
+
+    run = run_analysis(
+        request(), tmp_path, write_geotiff=False,
+        search=lambda bbox, start, end: _two_granules(),
+        cmr=_cmr_ok, retrieve=slow_retrieve,
+        reader=lambda path, units: b if str(path).startswith("BEFORE") else a)
+    assert state["max"] == 2
+    assert run.stats["valid_pixels"] > 0
+
+
+def test_prefetch_retrievals_warms_the_cache_without_analysing(tmp_path):
+    from nisar_change.pipeline import prefetch_retrievals
+
+    calls = []
+    info = prefetch_retrievals(
+        request(), cache_dir=tmp_path,
+        search=lambda bbox, start, end: _two_granules(),
+        cmr=_cmr_ok,
+        retrieve=lambda g, bbox, pol, cache, i: (
+            calls.append((g.id, Path(cache) == tmp_path)),
+            (Path(g.id + ".tif"), {"job_id": "J"}))[1])
+    assert sorted(c for c, _ in calls) == ["AFTER_G", "BEFORE_G"]
+    assert all(ok for _, ok in calls)          # downloads go to the shared cache
+    assert info["before_file"] == "BEFORE_G.tif" and info["after_file"] == "AFTER_G.tif"
+    assert not list(tmp_path.glob("*.csv"))    # no analysis, no outputs

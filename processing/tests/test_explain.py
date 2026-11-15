@@ -249,3 +249,40 @@ def test_truncated_reply_is_retried_with_a_larger_budget(api_server, monkeypatch
     assert res.status_code == 200
     assert res.json()["explanation"]["observedSignal"] == "Signal recorded."
     assert TruncatingStub.calls == 2  # one truncation, one automatic retry
+
+
+class FlakyStub(BaseHTTPRequestHandler):
+    """502 once (transient upstream), then the normal reply."""
+
+    calls = 0
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers["Content-Length"]))
+        FlakyStub.calls += 1
+        if FlakyStub.calls == 1:
+            self.send_response(502)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": {"message": "upstream unavailable"}}).encode())
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(SUCCESS_REPLY.encode())
+
+
+def test_transient_upstream_5xx_is_retried(api_server, monkeypatch):
+    FlakyStub.calls = 0
+    server = _stub_server(monkeypatch, FlakyStub)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    try:
+        res = requests.post(f"{api_server}/api/explain-change", json=VALID_BODY, timeout=10)
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert res.status_code == 200
+    assert res.json()["explanation"]["observedSignal"] == "Signal recorded."
+    assert FlakyStub.calls == 2  # one transient failure, one automatic retry

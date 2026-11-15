@@ -5,8 +5,10 @@ import AnalysisPanel, { type AnalysisState } from "./components/AnalysisPanel";
 import {
   AnalysisError,
   analysisBase,
+  prefetchAnalysis,
   submitAnalysis,
   waitForAnalysis,
+  type AnalysisRequest,
   type AnalysisResult,
 } from "./lib/analysisApi";
 import { downloadFile, reportCsv, reportHtml, reportJson, type ReportInput } from "./lib/exportReport";
@@ -715,8 +717,35 @@ export default function App() {
   }, [viewer, summary, channel, currentSelectionKey, analysis]);
 
   // ---- calibrated analysis (Python pipeline) --------------------------
+  const buildAnalysisRequest = useCallback((): AnalysisRequest | null => {
+    if (!aoi || !viewer || !currentSelectionKey) return null;
+    return {
+      bbox: [aoi.west, aoi.south, aoi.east, aoi.north],
+      eventType: "deforestation",
+      beforeDate: viewer.earlier.startTime.slice(0, 10),
+      afterDate: viewer.later.startTime.slice(0, 10),
+      polarisation: channel,
+      thresholdDb: 3,
+      direction: "decrease",
+    };
+  }, [aoi, viewer, channel, currentSelectionKey]);
+
+  // Warm the worker's download cache as soon as the Explain step opens on a
+  // pair: the Harmony retrieval runs in the background, so "Run calibrated
+  // analysis" later finds the data ready and completes in seconds.
+  const prefetchedKeys = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (step !== "explain" || analysis.status !== "idle") return;
+    const request = buildAnalysisRequest();
+    if (!request || !currentSelectionKey) return;
+    if (prefetchedKeys.current.has(currentSelectionKey)) return;
+    prefetchedKeys.current.add(currentSelectionKey);
+    void prefetchAnalysis(request);
+  }, [step, analysis.status, buildAnalysisRequest, currentSelectionKey]);
+
   const handleRunAnalysis = useCallback(async () => {
-    if (!aoi || !viewer || !currentSelectionKey) return;
+    const request = buildAnalysisRequest();
+    if (!request || !currentSelectionKey) return;
     const key = currentSelectionKey;
     analysisAbort.current?.abort();
     const controller = new AbortController();
@@ -726,18 +755,7 @@ export default function App() {
     };
     settle({ status: "running", job: { analysisId: "", status: "running", progress: "submitting" } });
     try {
-      const { analysisId } = await submitAnalysis(
-        {
-          bbox: [aoi.west, aoi.south, aoi.east, aoi.north],
-          eventType: "deforestation",
-          beforeDate: viewer.earlier.startTime.slice(0, 10),
-          afterDate: viewer.later.startTime.slice(0, 10),
-          polarisation: channel,
-          thresholdDb: 3,
-          direction: "decrease",
-        },
-        controller.signal,
-      );
+      const { analysisId } = await submitAnalysis(request, controller.signal);
       const job = await waitForAnalysis(
         analysisId,
         (j) => settle({ status: "running", job: j }),
@@ -762,7 +780,7 @@ export default function App() {
             : `The analysis service is not available. ${err instanceof Error ? err.message : ""}`,
       });
     }
-  }, [aoi, viewer, channel, currentSelectionKey]);
+  }, [buildAnalysisRequest, currentSelectionKey]);
 
   // ---- exports (JSON / CSV / printable report) ------------------------
   const handleExport = useCallback(

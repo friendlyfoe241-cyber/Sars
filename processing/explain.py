@@ -222,6 +222,8 @@ def explain(body: dict) -> dict:
                     last_status, last_detail = exc.code, detail
                     truncated = False
                     break
+                if attempt == 0 and exc.code in (429, 500, 502, 503, 504):
+                    continue  # transient upstream failure (rate limit / 5xx): one retry
                 raise _service_error(exc.code, detail)
             except (urllib.error.URLError, TimeoutError, ValueError):
                 raise ExplainError(502, "The explanation service could not be reached.")

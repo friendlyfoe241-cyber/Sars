@@ -157,3 +157,33 @@ def test_static_traversal_blocked(api_server):
         while chunk := s.recv(65536):
             data += chunk
     assert b"ThreadingHTTPServer" not in data  # serve.py source must not leak
+
+
+def test_job_percent_is_monotonic():
+    req = serve.parse_request({"bbox": [28.4, 7.5, 28.7, 7.8], "beforeDate": "2026-10-25",
+                               "afterDate": "2026-11-06", "polarisation": "HV"})
+    job = serve.Job(req)
+    job.update("retrieving", 60)
+    job.update("retrieving", 20)        # Harmony progress resets must not show
+    job.update("processing", None)      # no percent -> unchanged
+    assert job.percent == 60 and job.view()["percent"] == 60.0
+    job.update("done", 100)
+    assert job.view()["percent"] == 100.0
+
+
+def test_prefetch_endpoint_warms_and_dedupes(api_server, monkeypatch):
+    calls = []
+    monkeypatch.setattr(serve, "prefetch_retrievals",
+                        lambda req, cache_dir=None: calls.append(req))
+    body = {"bbox": [11.0, 11.0, 11.2, 11.2], "beforeDate": "2026-10-25",
+            "afterDate": "2026-11-06", "polarisation": "HV"}
+    res = requests.post(f"{api_server}/api/analyze/prefetch", json=body, timeout=10)
+    assert res.status_code == 202 and res.json()["status"] == "prefetching"
+    res = requests.post(f"{api_server}/api/analyze/prefetch", json=body, timeout=10)
+    assert res.status_code == 200 and res.json()["status"] == "skipped"
+    import time
+    for _ in range(50):
+        if calls:
+            break
+        time.sleep(0.1)
+    assert len(calls) == 1

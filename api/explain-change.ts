@@ -232,6 +232,9 @@ async function callGemini(prompt: string): Promise<{ explanation: Explanation; m
           truncated = false;
           break;
         }
+        if (attempt === 0 && (res.status === 429 || res.status >= 500)) {
+          continue; // transient upstream failure (rate limit / 5xx): one retry
+        }
         throw serviceError(res.status, detail);
       }
 

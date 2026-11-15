@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -33,6 +34,17 @@ from .errors import MissingDependencyError, RetrievalError
 TERMINAL_FAIL = {"failed", "canceled", "complete_with_errors"}
 TRANSIENT_HINTS = ("429", "502", "503", "504", "too many requests", "timed out", "timeout",
                    "connection")
+
+# One download per cache directory at a time: a cache warm-up and a real run
+# requesting the same data must not write the same files concurrently — the
+# second caller waits, then finds the finished download in the cache.
+_LOCKS: dict[str, threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _lock_for(key: str) -> threading.Lock:
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(key, threading.Lock())
 
 
 def _is_transient(exc: Exception) -> bool:
@@ -124,6 +136,14 @@ def retrieve_subset(granule: Granule, bbox, pol: str, cache_dir: Path, cmr_info:
     key = hashlib.sha1(f"{bbox}".encode()).hexdigest()[:10]
     out_dir = Path(cache_dir) / granule.id / f"{pol}_{key}"
     out_dir.mkdir(parents=True, exist_ok=True)
+    with _lock_for(str(out_dir)):
+        return _retrieve_locked(granule, bbox, pol, out_dir, cmr_info,
+                                timeout_s=timeout_s, poll_s=poll_s, client=client,
+                                on_progress=on_progress)
+
+
+def _retrieve_locked(granule, bbox, pol: str, out_dir: Path, cmr_info: dict, *,
+                     timeout_s: int, poll_s: float, client, on_progress) -> tuple[Path, dict]:
     cached = sorted(out_dir.glob("*.tif*"))
     if cached:
         return _select_layer_file(cached, pol), {"job_id": None, "variable": None, "cached": True}
@@ -185,7 +205,7 @@ def retrieve_subset(granule: Granule, bbox, pol: str, cache_dir: Path, cmr_info:
                 f"Harmony job {job_id} did not finish within {timeout_s} s (state '{state}'). "
                 "It may still complete; re-run later to reuse it.")
         time.sleep(wait)
-        wait = min(wait * 1.5, 60)
+        wait = min(wait * 1.5, 20)
 
     futures = list(_retry(lambda: client.download_all(job_id, directory=str(out_dir),
                                                       overwrite=True)))

@@ -811,6 +811,22 @@
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
 }
 
+/* ---- progress bar (calibrated analysis) -------------------------------------- */
+.vx-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.vx-progress__fill {
+  height: 100%;
+  min-width: 2%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--vx-flare), #8b9aff);
+  transition: width 0.5s var(--vx-ease);
+}
+
 /* ---- map furniture ---------------------------------------------------------- */
 .vx-map {
   position: absolute;

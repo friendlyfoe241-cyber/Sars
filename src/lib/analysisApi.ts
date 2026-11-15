@@ -95,6 +95,8 @@ export interface AnalysisJob {
   analysisId: string;
   status: "queued" | "running" | "succeeded" | "failed";
   progress: string;
+  /** overall completion, 0-100 (monotonic on the worker) */
+  percent?: number;
   result?: AnalysisResult;
   artifactsBase?: string;
   error?: { code: string; message: string; reasons?: string[] };
@@ -165,6 +167,20 @@ export async function submitAnalysis(
     body: JSON.stringify(request),
     signal,
   })) as { analysisId: string };
+}
+
+/** Warm the worker's download cache for a pair the user is looking at
+ * (fire-and-forget: any failure is silent — Run remains the real path). */
+export async function prefetchAnalysis(request: AnalysisRequest): Promise<void> {
+  try {
+    await jsonFetch("/api/analyze/prefetch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+  } catch {
+    /* best-effort */
+  }
 }
 
 export async function getAnalysis(id: string, signal?: AbortSignal): Promise<AnalysisJob> {
