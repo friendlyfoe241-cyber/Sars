@@ -4,6 +4,8 @@ import StepIcon from "./StepIcon";
 import Starfield from "./Starfield";
 import { STEPS, type StepId } from "../lib/steps";
 
+const TILT_MAX = 24;
+
 export default function Hero({
   intro,
   leaving,
@@ -15,9 +17,10 @@ export default function Hero({
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<number | null>(null);
-  const [spin, setSpin] = useState(0);
+  const [tilt, setTilt] = useState(0);
   const hoverRef = useRef<number | null>(null);
-  const lastRef = useRef<number | null>(null);
+  const pointerRef = useRef<number | null>(null);
+  const focusRef = useRef<number | null>(null);
   const quietRef = useRef(false);
   const [W, setW] = useState(() => window.innerWidth);
 
@@ -47,22 +50,45 @@ export default function Hero({
     quietRef.current = false;
   }, [intro]);
 
+  const tiltFor = (i: number | null) => {
+    if (i === null) return 0;
+    const n = STEPS.length;
+    return n > 1 ? Math.round(((i - (n - 1) / 2) / ((n - 1) / 2)) * TILT_MAX) : 0;
+  };
+
+  const settle = () => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setTilt(0);
+      return;
+    }
+    setTilt(tiltFor(pointerRef.current ?? focusRef.current));
+  };
+
   const pick = (i: number) => {
-    const was = hoverRef.current;
     hoverRef.current = i;
     setHover(i);
-    if (was === i) return;
-    const last = lastRef.current;
-    lastRef.current = i;
+    pointerRef.current = i;
+    settle();
+  };
+
+  const focusOn = (i: number) => {
+    hoverRef.current = i;
+    setHover(i);
     if (quietRef.current) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const steps = last === null || last === i ? 1 : i - last;
-    setSpin((a) => a + steps * 52);
+    focusRef.current = i;
+    settle();
+  };
+
+  const blurFrom = () => {
+    focusRef.current = null;
+    settle();
   };
 
   const leave = () => {
     hoverRef.current = null;
     setHover(null);
+    pointerRef.current = null;
+    settle();
   };
 
   const bw = W >= 720 ? 128 : W >= 360 ? 64 : 56;
@@ -105,7 +131,7 @@ export default function Hero({
                   fetchPriority="high"
                   decoding="async"
                   className="vx-hero__spin relative block h-full w-full rounded-full"
-                  style={{ transform: `rotate(${spin}deg)` }}
+                  style={{ transform: `rotate(${tilt}deg)` }}
                   draggable={false}
                 />
                 <div
@@ -149,7 +175,8 @@ export default function Hero({
                   style={{ width: bw, minHeight: 64, color: hover === i ? "#fff" : "#D9DEE5" }}
                   aria-label={`Open ${s.label}`}
                   onMouseEnter={() => pick(i)}
-                  onFocus={() => pick(i)}
+                  onFocus={() => focusOn(i)}
+                  onBlur={blurFrom}
                   onClick={() => onEnter(s.id)}
                 >
                   <StepIcon id={s.id} />
