@@ -46,6 +46,7 @@ export default function AppHeader({
               style={{ background: DOT[statusTone] }}
             />
             {statusLabel}
+            <span className="sr-only">. {statusNote}</span>
           </span>
           <button
             type="button"

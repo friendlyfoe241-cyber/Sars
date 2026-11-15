@@ -143,11 +143,11 @@ export function formatDate(iso: string): string {
 export function datasetStatusLabel(status: DatasetStatus): string {
   switch (status) {
     case "nisar_quicklook":
-      return "NISAR data · quicklook";
+      return "Quicklook";
     case "nisar_calibrated":
-      return "NISAR data · calibrated";
+      return "Calibrated";
     case "demo":
-      return "Demo data";
+      return "Demo";
   }
 }
 
