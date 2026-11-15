@@ -136,6 +136,7 @@ export default function App() {
 
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [datesSwapped, setDatesSwapped] = useState(false);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -478,7 +479,11 @@ export default function App() {
   }, [aoi, dateFrom, dateTo, runSearch]);
 
   const handleApplyDates = useCallback(
-    (from: string, to: string) => {
+    (rawFrom: string, rawTo: string) => {
+      const swap = Boolean(rawFrom && rawTo && rawFrom > rawTo);
+      const from = swap ? rawTo : rawFrom;
+      const to = swap ? rawFrom : rawTo;
+      setDatesSwapped(swap);
       setDateFrom(from);
       setDateTo(to);
       if (aoi) void runSearch(aoi, from, to);
@@ -1065,7 +1070,14 @@ export default function App() {
           <div className="vx-page__content">
             <Panel area="info">
               {notice("scenes")}
-              <DateFilter dateFrom={dateFrom} dateTo={dateTo} searching={searching} onApply={handleApplyDates} />
+              <DateFilter key={`${dateFrom}|${dateTo}`} dateFrom={dateFrom} dateTo={dateTo} searching={searching} onApply={handleApplyDates} />
+              {datesSwapped && (
+                <div className="vx-section">
+                  <p className="vx-note" role="status">
+                    From was later than To, so the dates were swapped: searching {dateFrom} to {dateTo}.
+                  </p>
+                </div>
+              )}
               {truncated && (
                 <div className="vx-section">
                   <p className="vx-note">
@@ -1104,6 +1116,11 @@ export default function App() {
                 right={<span className="vx-panel__meta">{pairs.length} compatible</span>}
               >
                 <div className="px-4 pt-1 pb-3">{stateNotice("pairs")}</div>
+                {datesSwapped && (
+                  <p className="vx-note px-4 pb-3" role="status">
+                    From was later than To, so the dates were swapped: searching {dateFrom} to {dateTo}.
+                  </p>
+                )}
                 <SuggestedPairs
                   pairs={pairs}
                   metadataOnlyPairIds={metadataOnlyPairIds}

@@ -32,7 +32,6 @@ export function DateFilter({
 }) {
   const [from, setFrom] = useState(dateFrom);
   const [to, setTo] = useState(dateTo);
-  const [swapped, setSwapped] = useState(false);
   return (
     <Section
       title="Date filter"
@@ -46,14 +45,6 @@ export function DateFilter({
         className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] items-end gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (from && to && from > to) {
-            setFrom(to);
-            setTo(from);
-            setSwapped(true);
-            onApply(to, from);
-            return;
-          }
-          setSwapped(false);
           onApply(from, to);
         }}
       >
@@ -65,10 +56,7 @@ export function DateFilter({
             id="vx-from"
             type="date"
             value={from}
-            onChange={(e) => {
-                  setFrom(e.target.value);
-                  setSwapped(false);
-                }}
+            onChange={(e) => setFrom(e.target.value)}
             className="vx-input vx-mono !px-2"
           />
         </div>
@@ -80,10 +68,7 @@ export function DateFilter({
             id="vx-to"
             type="date"
             value={to}
-            onChange={(e) => {
-                  setTo(e.target.value);
-                  setSwapped(false);
-                }}
+            onChange={(e) => setTo(e.target.value)}
             className="vx-input vx-mono !px-2"
           />
         </div>
@@ -91,11 +76,6 @@ export function DateFilter({
           Apply and search again
         </button>
       </form>
-      {swapped && (
-        <p className="vx-note mt-2" role="status">
-          From was later than To, so the two dates were swapped: searching {from} to {to}.
-        </p>
-      )}
     </Section>
   );
 }
