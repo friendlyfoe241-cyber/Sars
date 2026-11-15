@@ -20,6 +20,13 @@ interface ComparePanelProps {
   legend?: ReactNode;
 }
 
+const CHANNEL_HINT: Record<string, string> = {
+  HH: "Sent horizontally, received horizontally",
+  HV: "Sent horizontally, received vertically",
+  VV: "Sent vertically, received vertically",
+  VH: "Sent vertically, received horizontally",
+};
+
 const LAYERS: { id: DisplayChoice; label: string }[] = [
   { id: "compare", label: "Compare" },
   { id: "before", label: "Before" },
@@ -55,6 +62,7 @@ export default function ComparePanel({
                 aria-pressed={p === pol}
                 disabled={status !== "ready"}
                 onClick={() => onPolChange(p)}
+                title={CHANNEL_HINT[p]}
               >
                 {p}
                 {status === "loading" ? " (loading…)" : status === "unavailable" ? " (unavailable)" : ""}
@@ -63,6 +71,10 @@ export default function ComparePanel({
           })}
         </div>
         <p className="vx-note vx-mono mt-2">{dataset.layers[pol] ?? ""}</p>
+        <p className="vx-note mt-1">
+          HH: radar sent and received horizontally. HV: sent horizontally, received vertically, more
+          sensitive to vegetation.
+        </p>
       </Section>
 
       <Section title="Display layer">

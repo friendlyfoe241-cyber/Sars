@@ -350,3 +350,9 @@
     transform: none !important;
   }
 }
+.vx-hero__about {
+  max-width: 34rem;
+  font-size: clamp(12px, 1.15vw, 15px);
+  line-height: 1.45;
+  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.9);
+}

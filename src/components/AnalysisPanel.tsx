@@ -263,9 +263,9 @@ export default function AnalysisPanel({
       }
     >
       <p className="vx-note mb-3">
-        Retrieval of calibrated GCOV measurements and scientific change analysis by the Python
-        pipeline (NASA Harmony subset → dB statistics → candidate-area estimates), for {polarisation}{" "}
-        between {beforeDate} and {afterDate}.
+        Fetches calibrated GCOV data (NISAR's calibrated, map-projected radar product, gamma-0 in
+        dB) and runs a change analysis in the Python pipeline (NASA Harmony subset → dB statistics →
+        candidate-area estimates), for {polarisation} between {beforeDate} and {afterDate}.
       </p>
 
       {state.status === "idle" && (

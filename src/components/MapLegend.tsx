@@ -51,7 +51,7 @@ function MapLegend({ viewer, layer, pol, saturation, variant = "map" }: MapLegen
           </>
         )}
       </div>
-      <div className="mt-1 text-[11px] leading-4 text-vx-muted">
+      <div className="mt-1 text-[11px] leading-4 text-vx-muted" title="Display DN: 8-bit display brightness of the browse quicklook, not a calibrated value">
         Unit: {unit}
         {change ? ` · cyan decrease, grey none, amber increase; saturates at ±${saturation}` : ""}
       </div>
@@ -59,6 +59,27 @@ function MapLegend({ viewer, layer, pol, saturation, variant = "map" }: MapLegen
         <span className="vx-checker inline-block size-3 rounded-sm border border-vx-control" aria-hidden />
         No data
       </div>
+      {variant === "inline" && (
+        <details className="vx-legend__explain mt-3">
+          <summary className="vx-note">What am I looking at?</summary>
+          <div className="mt-2 grid gap-2 text-[12px] leading-[18px] text-vx-muted">
+            <p className="m-0">
+              {change
+                ? "The colours show where the radar image got darker (cyan) or brighter (amber) between the two dates. Grey means little change."
+                : "Each image shows how much radar signal came back from the ground on one date: brighter means more signal. Pick the Change layer to colour where it got darker (cyan) or brighter (amber)."}
+            </p>
+            <p className="m-0">
+              These are browse quicklook images, so the values are display brightness (8-bit display
+              DN, 0 to 255), not calibrated measurements.
+            </p>
+            <p className="m-0">
+              Darker often goes with smoother surfaces, such as open standing water. Brighter often
+              goes with rougher surfaces, more vegetation or structures, and sometimes wetter soil or
+              flooded vegetation. These are possible readings, not confirmed causes.
+            </p>
+          </div>
+        </details>
+      )}
     </div>
   );
 

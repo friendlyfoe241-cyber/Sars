@@ -857,3 +857,7 @@
 .vx-notice__extra {
   grid-column: 2;
 }
+.vx-legend__explain summary {
+  cursor: pointer;
+  min-height: 24px;
+}

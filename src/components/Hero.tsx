@@ -117,6 +117,10 @@ export default function Hero({
           <p className="vx-hero__sub m-0 font-light text-[#D9DEE5]">
             Watch the planet's surface shift, one radar pass at a time.
           </p>
+          <p className="vx-hero__about m-0 text-[#D9DEE5]">
+            NISAR is the NASA-ISRO radar satellite that images Earth's surface day or night and
+            through cloud. Pick a place and compare two passes to see what changed.
+          </p>
         </section>
 
         <div className="vx-hero__stage" aria-hidden="true">
