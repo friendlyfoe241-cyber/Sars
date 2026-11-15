@@ -128,11 +128,6 @@ def retrieve_subset(granule: Granule, bbox, pol: str, cache_dir: Path, cmr_info:
     rejected variable names (tries the next candidate).  `on_progress`, if
     given, is called with Harmony's reported percent complete (or None).
     """
-    try:
-        from harmony import BBox, Collection, Request
-    except ImportError as exc:  # pragma: no cover
-        raise MissingDependencyError("harmony-py is required (pip install harmony-py)") from exc
-
     key = hashlib.sha1(f"{bbox}".encode()).hexdigest()[:10]
     out_dir = Path(cache_dir) / granule.id / f"{pol}_{key}"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -144,6 +139,11 @@ def retrieve_subset(granule: Granule, bbox, pol: str, cache_dir: Path, cmr_info:
 
 def _retrieve_locked(granule, bbox, pol: str, out_dir: Path, cmr_info: dict, *,
                      timeout_s: int, poll_s: float, client, on_progress) -> tuple[Path, dict]:
+    try:
+        from harmony import BBox, Collection, Request
+    except ImportError as exc:  # pragma: no cover
+        raise MissingDependencyError("harmony-py is required (pip install harmony-py)") from exc
+
     cached = sorted(out_dir.glob("*.tif*"))
     if cached:
         return _select_layer_file(cached, pol), {"job_id": None, "variable": None, "cached": True}
