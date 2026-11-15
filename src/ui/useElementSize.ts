@@ -1,6 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
-/** Content-box size of an element in CSS pixels (0 x 0 until measured). */
 export function useElementSize<T extends HTMLElement>() {
   const ref = useRef<T | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });

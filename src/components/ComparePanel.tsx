@@ -7,22 +7,25 @@ import type { ChannelStatus } from "../lib/rasterSource";
 
 interface ComparePanelProps {
   dataset: ViewerDataset;
-  /** per-channel load state; only ready channels can be selected */
   channelStatus: Record<string, ChannelStatus>;
   pol: string;
   onPolChange: (pol: string) => void;
   layer: DisplayChoice;
   onLayerChange: (layer: DisplayChoice) => void;
-  /** false while no before/after pair of the selected channel is loaded */
   canCompare: boolean;
   computing: boolean;
   showAllFootprints: boolean;
   onToggleFootprints: (show: boolean) => void;
-  /** frame the area of interest on the map again */
   onFit: () => void;
-  /** the legend for the current layer and channel, shown under the layer switch */
   legend?: ReactNode;
 }
+
+const CHANNEL_HINT: Record<string, string> = {
+  HH: "Sent horizontally, received horizontally",
+  HV: "Sent horizontally, received vertically",
+  VV: "Sent vertically, received vertically",
+  VH: "Sent vertically, received horizontally",
+};
 
 const LAYERS: { id: DisplayChoice; label: string }[] = [
   { id: "compare", label: "Compare" },
@@ -59,6 +62,7 @@ export default function ComparePanel({
                 aria-pressed={p === pol}
                 disabled={status !== "ready"}
                 onClick={() => onPolChange(p)}
+                title={CHANNEL_HINT[p]}
               >
                 {p}
                 {status === "loading" ? " (loading…)" : status === "unavailable" ? " (unavailable)" : ""}
@@ -67,6 +71,10 @@ export default function ComparePanel({
           })}
         </div>
         <p className="vx-note vx-mono mt-2">{dataset.layers[pol] ?? ""}</p>
+        <p className="vx-note mt-1">
+          HH: radar sent and received horizontally. HV: sent horizontally, received vertically, more
+          sensitive to vegetation.
+        </p>
       </Section>
 
       <Section title="Display layer">

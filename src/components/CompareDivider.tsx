@@ -5,22 +5,8 @@ import { MoveHorizontal } from "lucide-react";
 import Glass from "./glass/Glass";
 import { observeSize } from "../lib/freeArea";
 
-/**
- * Draggable before / after comparison on the one Leaflet map.
- *
- * Both overlays sit on the same bounds, each in its own map pane.  The panes
- * are clipped with CSS `clip-path` at the divider: Before shows left of it,
- * After right of it.  The divider is fixed on screen, so the clip is
- * recomputed from its container x on every map move / zoom / resize (pane
- * coordinates shift while the map pans).  Position, clip, grip, labels and
- * ARIA values are all written straight to the DOM from refs: the divider
- * position is not React state and dragging re-renders nothing.
- */
-
 const BEFORE_PANE = "orbCompareBefore";
 const AFTER_PANE = "orbCompareAfter";
-// Below Leaflet's overlay pane (400) so the AOI outline and footprints stay on
-// top of the radar; above the basemap (200).
 const PANE_Z = { [BEFORE_PANE]: 398, [AFTER_PANE]: 399 } as const;
 
 const GRIP = 44;
@@ -28,15 +14,11 @@ const GAP = 8;
 const BIG = 100000;
 
 interface Range {
-  /** container px: the divider runs across the whole map stage */
   left: number;
   right: number;
-  /** label top */
   top: number;
-  /** the divider line runs from here to `lineBottom` */
   lineTop: number;
   lineBottom: number;
-  /** grip top: vertically centred on the stage */
   gripY: number;
   labelLeft: number;
   labelRight: number;
@@ -46,14 +28,12 @@ export interface CompareDividerProps {
   bounds: L.LatLngBoundsExpression;
   beforeUrl: string;
   afterUrl: string;
-  /** divider position, 0..1 of the usable range; owned by the parent, not state */
   position: MutableRefObject<number>;
   beforeDate: string;
   afterDate: string;
   channel: string;
 }
 
-/** "25 Oct 2026" -> "25 Oct" for the compact phone labels. */
 function shortDate(d: string): string {
   return d.replace(/\s+\d{4}$/, "");
 }
@@ -62,15 +42,10 @@ function valueText(pct: number): string {
   return `${pct}% — before on the left, after on the right`;
 }
 
-/** The map stage is the divider's whole range (nothing floats over it). */
 function measure(container: HTMLElement, labelH: number): Range {
   const w = container.clientWidth;
   const h = container.clientHeight;
   const top = 12;
-  // The zoom / basemap controls sit at the top-right of the stage: the After
-  // label stays left of the ones in its own row (the zoom bar, or on phones
-  // the 44px basemap button), not of the wider switch further down.  Layout
-  // offsets, not rects: the stage may be mid-glide (a scale transform).
   let controlsW = 0;
   container.querySelectorAll<HTMLElement>(".leaflet-top.leaflet-right .leaflet-control").forEach((el) => {
     const y = el.offsetTop + ((el.offsetParent as HTMLElement | null)?.offsetTop ?? 0);
@@ -108,7 +83,6 @@ export default function CompareDivider({
   const boundsRef = useRef(bounds);
   boundsRef.current = bounds;
 
-  // Own panes for the two overlays (created once per map, reused).
   useEffect(() => {
     for (const name of [BEFORE_PANE, AFTER_PANE] as const) {
       const pane = map.getPane(name) ?? map.createPane(name);
@@ -124,8 +98,6 @@ export default function CompareDivider({
     };
   }, [map]);
 
-  // Layout, clip, drag and keyboard.  Everything below mutates the DOM
-  // directly; nothing here sets React state.
   useEffect(() => {
     const container = map.getContainer();
     const root = rootRef.current;
@@ -135,8 +107,6 @@ export default function CompareDivider({
     const afterLabel = afterLabelRef.current;
     if (!root || !line || !grip || !beforeLabel || !afterLabel) return;
 
-    // Everything that needs layout is measured in relayout() and cached, so
-    // render() only writes (no forced reflow per map move / pointermove).
     let range = measure(container, beforeLabel.offsetHeight);
     let width = container.clientWidth;
     let containerLeft = container.getBoundingClientRect().left;
@@ -151,8 +121,6 @@ export default function CompareDivider({
       line.style.transform = `translate3d(${x}px,0,0)`;
       grip.style.transform = `translate3d(${Math.min(Math.max(x - GRIP / 2, range.left), Math.max(range.right - GRIP, range.left))}px,0,0)`;
 
-      // Clip each pane at the divider.  Pane coordinates move with the map,
-      // so convert the container x into layer space on every update.
       const lx = map.containerPointToLayerPoint(L.point(x, 0)).x;
       const before = map.getPane(BEFORE_PANE);
       const after = map.getPane(AFTER_PANE);
@@ -163,15 +131,11 @@ export default function CompareDivider({
         after.style.clipPath = `polygon(${lx}px ${-BIG}px, ${BIG}px ${-BIG}px, ${BIG}px ${BIG}px, ${lx}px ${BIG}px)`;
       }
 
-      // A label is hidden when its side is (nearly) gone, so text never
-      // touches the divider.
       const beforeRight = range.labelLeft + beforeW;
       const afterLeft = width - range.labelRight - afterW;
       beforeLabel.dataset.off = String(frac <= 0 || x < beforeRight + GAP);
       afterLabel.dataset.off = String(frac >= 1 || x > afterLeft - GAP);
 
-      // Phones: sit the (compact) labels just above the raster's top edge when
-      // the stage has room, else at the top of the stage.
       let top = range.top;
       if (phoneMq.matches && labelH > 0) {
         const nw = map.latLngToContainerPoint(L.latLngBounds(boundsRef.current as L.LatLngBoundsLiteral).getNorthWest());
@@ -185,7 +149,6 @@ export default function CompareDivider({
     };
 
     const relayout = () => {
-      // labels are positioned by render(); their size does not depend on it
       beforeW = beforeLabel.offsetWidth;
       afterW = afterLabel.offsetWidth;
       labelH = beforeLabel.offsetHeight;
@@ -204,16 +167,11 @@ export default function CompareDivider({
     relayout();
     map.on("move viewreset resize zoomend", render);
     const stopObserving = observeSize(container, relayout);
-    // one more pass once the pane elements and first layout exist
     const raf = requestAnimationFrame(relayout);
 
-    // ---- pointer drag ----
     let dragging = false;
     let pointerId = -1;
     let grab = 0;
-    // True only while THIS component has disabled map panning.  Never
-    // overwritten during a drag, so a second pointerdown cannot record the
-    // already-disabled state as the one to restore.
     let weDisabledPanning = false;
 
     const restorePanning = () => {
@@ -226,11 +184,10 @@ export default function CompareDivider({
       if (!dragging) return;
       dragging = false;
       if (moveRaf) cancelAnimationFrame(moveRaf);
-      flush(); // apply the last pointer position
+      flush();
       restorePanning();
       delete grip.dataset.dragging;
     };
-    // pointermove is coalesced to one update per animation frame
     let pendingX: number | null = null;
     let moveRaf = 0;
     const flush = () => {
@@ -250,13 +207,12 @@ export default function CompareDivider({
       if (e.button !== 0 && e.pointerType === "mouse") return;
       e.preventDefault();
       e.stopPropagation();
-      if (dragging) return; // a drag is already active: keep its state
+      if (dragging) return;
       dragging = true;
       pointerId = e.pointerId;
       grip.setPointerCapture(e.pointerId);
       containerLeft = container.getBoundingClientRect().left;
       const lineX = range.left + position.current * (range.right - range.left);
-      // keep the grab point under the pointer; no jump to the pointer
       grab = Math.max(-GRIP / 2, Math.min(GRIP / 2, e.clientX - containerLeft - lineX));
       if (map.dragging.enabled()) {
         map.dragging.disable();
@@ -266,7 +222,6 @@ export default function CompareDivider({
     };
     const onMove = (e: PointerEvent) => {
       if (!dragging || e.pointerId !== pointerId) return;
-      // the button was released without us seeing pointerup
       if (e.pointerType === "mouse" && e.buttons === 0) {
         finish();
         return;
@@ -285,7 +240,6 @@ export default function CompareDivider({
       if (e.pointerId === pointerId) finish();
     };
 
-    // ---- keyboard ----
     const onKey = (e: KeyboardEvent) => {
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       const step = e.shiftKey ? 0.1 : 0.01;
@@ -308,15 +262,12 @@ export default function CompareDivider({
         default:
           return;
       }
-      // keep Leaflet's keyboard panning and page scrolling out of it
       e.preventDefault();
       e.stopPropagation();
       position.current = Math.min(1, Math.max(0, Math.round(next * 1000) / 1000));
       render();
     };
 
-    // Leaflet listens for these on the map container: keep them from selecting
-    // a location or starting an AOI draw.
     const stop = (e: Event) => e.stopPropagation();
     const stopTypes = ["mousedown", "mouseup", "mousemove", "click", "dblclick", "contextmenu", "touchstart", "wheel"];
     for (const t of stopTypes) grip.addEventListener(t, stop);
@@ -347,7 +298,6 @@ export default function CompareDivider({
     };
   }, [map, position]);
 
-  // A label's text (or the panes appearing) changes what has to be measured.
   useEffect(() => {
     apply.current();
   }, [beforeDate, afterDate, channel, panesReady]);

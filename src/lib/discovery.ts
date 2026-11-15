@@ -1,17 +1,8 @@
-// NISAR observation discovery: queries the ASF search service (the service
-// behind ASF Data Search / Vertex and the asf_search Python package) for
-// NISAR L2 GCOV granules intersecting an AOI, and normalises the results.
-//
-// Metadata discovery is unauthenticated and runs directly in the browser
-// (the service is CORS-enabled).  Raster downloads that need Earthdata
-// authentication are handled separately and never in the client.
-
 import { abortable } from "./abort";
 import { aoiPolygon, type Aoi } from "./aoi";
 
 const SEARCH_API = "https://api.daac.asf.alaska.edu/services/search/param";
 
-/** Polarisation channel of a GCOV covariance layer, e.g. "HHHH" -> "HH". */
 export function layerToPolarisation(layerCode: string): string | null {
   const c = layerCode.toUpperCase();
   if (c.length === 4 && c[0] === c[2] && c[1] === c[3]) return c[0] + c[1];
@@ -21,9 +12,7 @@ export function layerToPolarisation(layerCode: string): string | null {
 export type Maturity = "VALIDATED" | "PROVISIONAL" | "BETA" | "UNKNOWN";
 
 export interface SceneQuicklooks {
-  /** channel -> public browse quicklook PNG URL */
   png: Record<string, string>;
-  /** channel -> KML ground-overlay URL (georeferencing quad) */
   kml: Record<string, string>;
 }
 
@@ -43,13 +32,9 @@ export interface NisarScene {
   frame: number | null;
   crid: string | null;
   pgeVersion: string | null;
-  /** production variant encoded in the product name (e.g. "2005" vs "4005") */
   productionCode: string | null;
-  /** closed footprint ring, [lon, lat] */
   footprint: [number, number][];
-  /** public ASF browse artefacts (no authentication) */
   quicklooks: SceneQuicklooks;
-  /** product download URL (requires Earthdata login to fetch) */
   downloadUrl: string | null;
   fileName: string | null;
 }
@@ -117,7 +102,6 @@ function cridFromName(name: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Production variant segment of a GCOV product name (e.g. 2005 vs 4005). */
 function productionCodeFromName(name: string): string | null {
   const fields = name.split("_");
   return fields.length > 10 ? fields[8] : null;
@@ -137,8 +121,6 @@ function quicklooksFor(g: AsfGranule, scene: string, collection: string): SceneQ
     if (m[2].toLowerCase() === "png") png[pol] = url;
     else kml[pol] = url;
   }
-  // Fall back to the deterministic browse URL pattern when the service did
-  // not return browse links (artefacts are public, no authentication).
   for (const pol of ["HH", "HV", "VV", "VH"]) {
     const code = pol + pol;
     if (!png[pol]) png[pol] = `${BROWSE_BASE}/${collection}/${scene}/${scene}_NATIVE_A_${code}.png`;
@@ -150,9 +132,6 @@ function quicklooksFor(g: AsfGranule, scene: string, collection: string): SceneQ
 function normalise(g: AsfGranule): NisarScene | null {
   const id = g.granuleName ?? g.productName;
   if (!id || !g.startTime) return null;
-  // Only real SAR products with polarimetric layers; skips NISAR navigation
-  // and other non-SAR GCOV products.  Never includes other missions: the
-  // query is restricted to platform=NISAR.
   const polarisations = (g.nisar?.mainBandPolarization ?? []).filter(Boolean);
   if (g.platform !== "NISAR" || polarisations.length === 0) return null;
   const collection = collectionFromUrls(g);
@@ -182,7 +161,6 @@ function normalise(g: AsfGranule): NisarScene | null {
 
 export interface DiscoveryQuery {
   aoi: Aoi;
-  /** ISO date, inclusive; optional */
   start?: string;
   end?: string;
   maxResults?: number;
@@ -190,13 +168,10 @@ export interface DiscoveryQuery {
 
 export interface DiscoveryResult {
   scenes: NisarScene[];
-  /** true when the service returned the maximum requested count */
   truncated: boolean;
   query: DiscoveryQuery;
 }
 
-// In-memory cache keyed by the query signature so identical searches are not
-// repeated (e.g. toggling back and forth between scenes and map views).
 const cache = new Map<string, DiscoveryResult>();
 const inflight = new Map<string, Promise<DiscoveryResult>>();
 
@@ -204,11 +179,6 @@ function queryKey(q: DiscoveryQuery): string {
   return `${q.aoi.west.toFixed(3)},${q.aoi.south.toFixed(3)},${q.aoi.east.toFixed(3)},${q.aoi.north.toFixed(3)}|${q.start ?? ""}|${q.end ?? ""}|${q.maxResults ?? ""}`;
 }
 
-/**
- * The underlying request is shared between identical concurrent searches, so
- * `signal` only detaches this caller (it rejects with an AbortError at once);
- * the shared request still completes and fills the cache.
- */
 export function searchNisarGcov(
   query: DiscoveryQuery,
   signal?: AbortSignal,

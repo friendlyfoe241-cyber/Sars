@@ -4,33 +4,42 @@ import StepIcon from "./StepIcon";
 import Starfield from "./Starfield";
 import { STEPS, type StepId } from "../lib/steps";
 
-/**
- * Landing scene, laid out as three grid rows so nothing can overlap the text:
- *
- *   1. the title block (eyebrow, title, subtitle), its own row at the top;
- *   2. the globe stage: the globe's top edge sits a gap below the title block
- *      and its size comes from the space left (it may bleed off the bottom and
- *      sides, where the hero crops it);
- *   3. the command dock, which may sit over the globe's lower part.
- *
- * The title comes in from the top edge, the globe rises behind it and the
- * liquid-glass command dock rises from the bottom edge.  Pressing a command
- * hands over to the workspace at once: the hero fades while its title and
- * dock slide back out to their edges (`leaving`).
- */
+const TILT_MAX = 24;
+
 export default function Hero({
   intro,
   leaving,
   onEnter,
 }: {
-  /** true on first load; false when returning from the app (Globe button) */
   intro: boolean;
-  /** playing the exit; unmounted by the parent once it has finished */
   leaving: boolean;
   onEnter: (step: StepId) => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<number | null>(null);
+  const [tilt, setTilt] = useState(0);
+  const hoverRef = useRef<number | null>(null);
+  const pointerRef = useRef<number | null>(null);
+  const focusRef = useRef<number | null>(null);
+  const keyboardRef = useRef(false);
+
+  useEffect(() => {
+    const onKey = () => {
+      keyboardRef.current = true;
+    };
+    const onPointer = () => {
+      keyboardRef.current = false;
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", onPointer, true);
+    window.addEventListener("pointermove", onPointer, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("pointermove", onPointer, true);
+    };
+  }, []);
+  const quietRef = useRef(false);
   const [W, setW] = useState(() => window.innerWidth);
 
   useEffect(() => {
@@ -49,17 +58,57 @@ export default function Hero({
     };
   }, []);
 
-  // Focus the first command when the user brought the hero up (Globe button)
-  // or nothing else holds focus.
   useEffect(() => {
     const ae = document.activeElement;
     if (intro && ae && ae !== document.body) return;
+    quietRef.current = true;
     rootRef.current
       ?.querySelector<HTMLButtonElement>("nav[aria-label='Command'] button")
       ?.focus({ preventScroll: true });
+    quietRef.current = false;
   }, [intro]);
 
-  // five commands always fit the width (12px gutters, 8px dock padding)
+  const tiltFor = (i: number | null) => {
+    if (i === null) return 0;
+    const n = STEPS.length;
+    return n > 1 ? Math.round(((i - (n - 1) / 2) / ((n - 1) / 2)) * TILT_MAX) : 0;
+  };
+
+  const settle = () => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setTilt(0);
+      return;
+    }
+    setTilt(tiltFor(pointerRef.current ?? focusRef.current));
+  };
+
+  const pick = (i: number) => {
+    hoverRef.current = i;
+    setHover(i);
+    pointerRef.current = i;
+    settle();
+  };
+
+  const focusOn = (i: number, el: HTMLElement) => {
+    hoverRef.current = i;
+    setHover(i);
+    if (quietRef.current || !keyboardRef.current || !el.matches(":focus-visible")) return;
+    focusRef.current = i;
+    settle();
+  };
+
+  const blurFrom = () => {
+    focusRef.current = null;
+    settle();
+  };
+
+  const leave = () => {
+    hoverRef.current = null;
+    setHover(null);
+    pointerRef.current = null;
+    settle();
+  };
+
   const bw = W >= 720 ? 128 : W >= 360 ? 64 : 56;
   const hi = hover ?? 2;
 
@@ -73,7 +122,6 @@ export default function Hero({
       <Starfield count={180} />
 
       <div className="vx-hero__layout">
-        {/* 1. title */}
         <section
           aria-labelledby="hero-title"
           className="vx-in-top vx-hero__title pointer-events-none flex flex-col items-center gap-3 px-6 text-center"
@@ -87,23 +135,16 @@ export default function Hero({
           <p className="vx-hero__sub m-0 font-light text-[#D9DEE5]">
             Watch the planet's surface shift, one radar pass at a time.
           </p>
+          <p className="vx-hero__about m-0 text-[#D9DEE5]">
+            NISAR is the NASA-ISRO radar satellite that images Earth's surface day or night and
+            through cloud. Pick a place and compare two passes to see what changed.
+          </p>
         </section>
 
-        {/* 2. globe: laid out below the title block, sized from what is left */}
         <div className="vx-hero__stage" aria-hidden="true">
           <div className="vx-hero__globe-box">
             <div className="vx-in-bottom vx-hero__globe h-full w-full">
               <div className="vx-hero__bob relative h-full w-full">
-                <div
-                  className="absolute rounded-full"
-                  style={{
-                    inset: "-9%",
-                    background:
-                      "radial-gradient(circle, rgba(63,140,240,.5) 42%, rgba(63,140,240,.12) 58%, transparent 70%)",
-                    filter: "blur(28px)",
-                    animation: "hero-glow 6s ease-in-out infinite",
-                  }}
-                />
                 <img
                   src={`${import.meta.env.BASE_URL}globe.webp`}
                   alt=""
@@ -111,14 +152,13 @@ export default function Hero({
                   height={1200}
                   fetchPriority="high"
                   decoding="async"
-                  className="relative block h-full w-full rounded-full"
+                  className="vx-hero__spin relative block h-full w-full rounded-full"
+                  style={{ transform: `rotate(${tilt}deg)` }}
                   draggable={false}
                 />
                 <div
                   className="absolute inset-0 rounded-full"
                   style={{
-                    background:
-                      "radial-gradient(circle at 30% 24%, rgba(255,255,255,.2), transparent 34%), radial-gradient(circle at 74% 82%, rgba(0,0,0,.6), transparent 62%)",
                     boxShadow: "inset -34px -46px 90px rgba(0,0,0,.65), inset 8px 10px 30px rgba(150,200,255,.35)",
                   }}
                 />
@@ -131,10 +171,9 @@ export default function Hero({
           </div>
         </div>
 
-        {/* 3. command dock */}
         <div className="vx-hero__dock-row pointer-events-none flex justify-center px-3">
           <Glass as="nav" aria-label="Command" className="vx-in-bottom vx-hero__dock pointer-events-auto rounded-full">
-            <div className="relative flex p-2" onMouseLeave={() => setHover(null)}>
+            <div className="relative flex p-2" onMouseLeave={leave}>
               <span
                 aria-hidden="true"
                 className="vx-hero__hover absolute rounded-full"
@@ -157,8 +196,9 @@ export default function Hero({
                   className="lg-btn relative flex flex-col items-center justify-center gap-1.5 rounded-full border-0 bg-transparent text-[14px]"
                   style={{ width: bw, minHeight: 64, color: hover === i ? "#fff" : "#D9DEE5" }}
                   aria-label={`Open ${s.label}`}
-                  onMouseEnter={() => setHover(i)}
-                  onFocus={() => setHover(i)}
+                  onMouseEnter={() => pick(i)}
+                  onFocus={(e) => focusOn(i, e.currentTarget)}
+                  onBlur={blurFrom}
                   onClick={() => onEnter(s.id)}
                 >
                   <StepIcon id={s.id} />

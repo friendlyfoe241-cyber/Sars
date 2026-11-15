@@ -1,9 +1,3 @@
-// Observation pairing: identifies which discovered acquisitions can be
-// compared as a before/after pair.  Scenes are only paired when sensor band,
-// product type, polarisation set, orbit direction, track, frame, processing
-// maturity and processing versions all match — never merely because two
-// scenes intersect the same AOI.
-
 import type { Aoi } from "./aoi";
 import type { NisarScene } from "./discovery";
 
@@ -11,9 +5,7 @@ export interface ScenePair {
   before: NisarScene;
   after: NisarScene;
   baselineDays: number;
-  /** fraction of the AOI covered by the pair's shared footprint (0-1) */
   aoiCoverage: number;
-  /** why these two scenes are comparable */
   compatibility: string;
 }
 
@@ -23,7 +15,6 @@ export interface PairIssue {
   after: string;
 }
 
-/** Identity of the acquisition geometry and processing that must match. */
 export function compatibilityKey(scene: NisarScene): string {
   return [
     scene.band,
@@ -51,7 +42,14 @@ export function compatibilityLabel(scene: NisarScene): string {
   ].join(" · ");
 }
 
-/** Differences that make two scenes unsuitable for change comparison. */
+export function isReversed(before: NisarScene, after: NisarScene): boolean {
+  return Date.parse(before.startTime) > Date.parse(after.startTime);
+}
+
+export function chronological(a: NisarScene, b: NisarScene): [NisarScene, NisarScene] {
+  return isReversed(a, b) ? [b, a] : [a, b];
+}
+
 export function pairIssues(a: NisarScene, b: NisarScene): PairIssue[] {
   const issues: PairIssue[] = [];
   const compare = (
@@ -89,7 +87,6 @@ function daysBetween(isoA: string, isoB: string): number {
   );
 }
 
-/** Ray-casting point-in-polygon test for a closed [lon, lat] ring. */
 function pointInRing(lon: number, lat: number, ring: [number, number][]): boolean {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -102,10 +99,6 @@ function pointInRing(lon: number, lat: number, ring: [number, number][]): boolea
   return inside;
 }
 
-/**
- * Fraction of the AOI covered by a scene footprint, sampled on a regular
- * grid (the footprint polygons are the actual catalogue geometries).
- */
 export function aoiCoverage(footprint: [number, number][], aoi: Aoi): number {
   if (footprint.length < 3) return 0;
   const n = 12;
@@ -120,14 +113,6 @@ export function aoiCoverage(footprint: [number, number][], aoi: Aoi): number {
   return hit / (n * n);
 }
 
-/**
- * Suggested comparison pairs: within each compatibility group, consecutive
- * acquisitions in time (earliest = before, latest = after).  Same-time
- * duplicates (parallel product variants) are never paired: there is no
- * temporal change to observe between them.  Ranked so pairs that actually
- * cover the AOI come first, then by shortest baseline (NISAR repeats every
- * 12 days).
- */
 export function findCompatiblePairs(
   scenes: NisarScene[],
   opts: { aoi?: Aoi; limit?: number } = {},

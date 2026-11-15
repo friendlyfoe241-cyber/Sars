@@ -159,3 +159,7 @@ from the cache entirely.
 - Single before/after pairs cannot separate deforestation from soil-moisture,
   seasonal, flooding or wind effects. Validation against independent
   reference data is required before drawing conclusions.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

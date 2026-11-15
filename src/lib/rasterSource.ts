@@ -1,16 +1,3 @@
-// Raster acquisition and processing: turns discovered NISAR scenes into the
-// same raster model the viewer has always used (greyscale grids + encoding +
-// bounds), so rendering, change detection and statistics are unchanged.
-//
-// Two sources are supported:
-//   * public ASF browse quicklooks (no authentication) resampled to the AOI;
-//   * a locally prepared dataset (public/data, see scripts/) — used when the
-//     selected pair was already prepared, e.g. calibrated dB rasters.
-//
-// Calibrated GCOV rasters for new areas are prepared offline with
-// scripts/prepare_nisar_gcov.py (Earthdata login, Harmony subsetting or
-// lazy HDF5 reads); the browser never downloads large products.
-
 import { abortError, isAbortError, throwIfAborted } from "./abort";
 import type { Aoi } from "./aoi";
 import { computeSaturation } from "./changeDetection";
@@ -35,10 +22,6 @@ export const QUICKLOOK_ENCODING: RasterEncoding = {
 
 export const DEFAULT_OUTPUT_WIDTH = 768;
 
-// ---------------------------------------------------------------------------
-// Georeferencing: quicklook KML ground-overlay quads
-// ---------------------------------------------------------------------------
-
 export interface Quad {
   sw: [number, number];
   se: [number, number];
@@ -58,7 +41,6 @@ export function parseKmlQuad(kmlText: string): Quad {
     })
     .filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat));
   if (pts.length !== 4) throw new Error(`Expected 4 KML corners, got ${pts.length}.`);
-  // Assign corners by position so KML ordering conventions do not matter.
   const byLat = [...pts].sort((a, b) => a[1] - b[1]);
   const [s1, s2, n1, n2] = byLat;
   const [sw, se] = s1[0] <= s2[0] ? [s1, s2] : [s2, s1];
@@ -85,7 +67,6 @@ export function quadFromBounds(bounds: { west: number; south: number; east: numb
   };
 }
 
-/** Solve a 3x3 system (Gaussian elimination with partial pivoting). */
 function solve3(m: number[][], v: number[]): [number, number, number] {
   const a = m.map((row, i) => [...row, v[i]]);
   for (let col = 0; col < 3; col++) {
@@ -104,7 +85,6 @@ function solve3(m: number[][], v: number[]): [number, number, number] {
   return [a[0][3] / a[0][0], a[1][3] / a[1][1], a[2][3] / a[2][2]];
 }
 
-/** Least-squares affine map (col, row) -> (lon, lat) through 4+ point pairs. */
 function fitAffine(
   pairs: { px: [number, number]; geo: [number, number] }[],
 ): (col: number, row: number) => [number, number] {
@@ -122,15 +102,6 @@ function fitAffine(
   return (col, row) => [a * col + b * row + c0, d * col + e * row + f0];
 }
 
-/**
- * Georeferencing derived from the scene footprint, for products that publish
- * no KML ground overlay.  The quicklook renders the swath inside a lat/lon
- * box with nodata (0) around it, so the valid region's four extreme points
- * are the swath corners and correspond to the footprint's four extreme
- * points (the rendering is north-up and monotone).  The least-squares affine
- * through those pairs places the image to about a kilometre — validated
- * against published KMLs on products that have them.
- */
 export function deriveQuadFromImage(src: Raster, footprint: [number, number][]): Quad {
   const { width, height, red } = src;
   let valid = 0;
@@ -191,7 +162,6 @@ export function deriveQuadFromImage(src: Raster, footprint: [number, number][]):
     sw: at(0, height - 1),
   };
 
-  // Plausibility: the rendering box may extend past the swath, but not wildly.
   const lons = ring.map((p) => p[0]);
   const lats = ring.map((p) => p[1]);
   const [minLon, maxLon] = [Math.min(...lons), Math.max(...lons)];
@@ -210,15 +180,6 @@ export function deriveQuadFromImage(src: Raster, footprint: [number, number][]):
   return quad;
 }
 
-// ---------------------------------------------------------------------------
-// Resampling onto the AOI grid (inverse bilinear mapping)
-// ---------------------------------------------------------------------------
-
-/**
- * Nearest-neighbour lookup table from AOI grid pixels to source pixels:
- * index[i] is the offset into the source raster, or -1 outside it.  Built
- * once per pair and shared by every raster on the same source grid.
- */
 export interface SampleIndex {
   width: number;
   height: number;
@@ -233,7 +194,6 @@ export function outputHeightFor(aoi: Aoi, outWidth: number): number {
 }
 
 const NEWTON_MAX_ITERATIONS = 6;
-/** stop refining once the (u, v) correction is far below one source pixel */
 const NEWTON_TOLERANCE = 1e-10;
 
 export function buildSampleIndex(
@@ -248,8 +208,6 @@ export function buildSampleIndex(
   const index = new Int32Array(width * height);
   const { sw, se, ne, nw } = quad;
 
-  // Bilinear map P(u, v) = sw + u*E + v*F + u*v*G.  G is zero for a
-  // parallelogram, where the affine start below is already exact.
   const ex = se[0] - sw[0];
   const ey = se[1] - sw[1];
   const fx = nw[0] - sw[0];
@@ -268,10 +226,8 @@ export function buildSampleIndex(
     const dy = aoi.north - latStep * r - sw[1];
     for (let c = 0; c < width; c++, i++) {
       const dx = aoi.west + lonStep * c - sw[0];
-      // Affine initialisation (the quads are near-parallelograms).
       let u = (dx * fy - dy * fx) / det;
       let v = (ex * dy - ey * dx) / det;
-      // Newton refinement against the bilinear mapping.
       for (let it = 0; it < NEWTON_MAX_ITERATIONS; it++) {
         const dPdu0 = ex + v * gx;
         const dPdu1 = ey + v * gy;
@@ -298,37 +254,17 @@ export function buildSampleIndex(
   return { width, height, index };
 }
 
-/** Resample a source raster onto the AOI grid using a shared sample index. */
 export function sampleToGrid(src: Raster, map: SampleIndex): Raster {
   const { index } = map;
-  const red = new Uint8ClampedArray(index.length); // 0 = nodata
+  const red = new Uint8ClampedArray(index.length);
   const srcRed = src.red;
   for (let i = 0; i < index.length; i++) {
     const s = index[i];
-    if (s >= 0) red[i] = srcRed[s]; // 0 (nodata) is preserved
+    if (s >= 0) red[i] = srcRed[s];
   }
   return { width: map.width, height: map.height, red };
 }
 
-// ---------------------------------------------------------------------------
-// Quicklook acquisition (public ASF browse artefacts, no authentication)
-// ---------------------------------------------------------------------------
-
-// Bounded LRU caches of in-flight / completed loads.  Decoded rasters are
-// large, so the raster caches are small; KML text is tiny, so its cache is
-// larger.  Failed loads are evicted so a transient network error can be
-// retried instead of being remembered for the whole session.  An entry that
-// is still loading with a caller waiting for it is never evicted, so a cache
-// can briefly exceed its limit while many loads are in flight.
-//
-// Loads are shared between callers, so cancelling is reference counted: a
-// caller's AbortSignal detaches that caller immediately, and the underlying
-// fetch is aborted (and evicted) only when no caller is still waiting for it.
-// The abort decision is deferred by a microtask, so a caller that aborts its
-// old load and immediately starts a new one for the same resource (pair
-// A,B -> B,C, or re-selecting the same pair) re-attaches in time and the
-// shared fetch survives.  Callers that pass no signal pin the entry (it is
-// never aborted).
 interface CacheEntry<T> {
   promise: Promise<T>;
   controller: AbortController;
@@ -345,19 +281,15 @@ function makeCache(limit: number): FetchCache {
   return { limit, entries: new Map() };
 }
 
-/** source quicklook PNGs and prepared rasters (large when decoded) */
 const rasterCache = makeCache(8);
-/** scene grids on the AOI grid (one AOI-sized raster each) */
 const gridCache = makeCache(32);
-/** georeferencing KML text */
 const textCache = makeCache(64);
 
-/** Evict least recently used entries down to the limit, sparing live loads. */
 function trim(cache: FetchCache): void {
   for (const [key, entry] of cache.entries) {
     if (cache.entries.size <= cache.limit) return;
-    if (!entry.settled && entry.refs > 0) continue; // someone is waiting for it
-    if (!entry.settled) entry.controller.abort(); // nobody is: stop the fetch
+    if (!entry.settled && entry.refs > 0) continue;
+    if (!entry.settled) entry.controller.abort();
     cache.entries.delete(key);
   }
 }
@@ -368,13 +300,12 @@ function cached<T>(
   load: (signal: AbortSignal) => Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
-  // Never start (or join) work on behalf of a caller that is already gone.
   if (signal?.aborted) return Promise.reject(abortError());
   const map = cache.entries;
   let entry = map.get(key) as CacheEntry<T> | undefined;
   if (entry) {
     map.delete(key);
-    map.set(key, entry); // mark as most recently used
+    map.set(key, entry);
   } else {
     const controller = new AbortController();
     const created: CacheEntry<T> = {
@@ -388,7 +319,7 @@ function cached<T>(
     created.promise.then(
       () => {
         created.settled = true;
-        trim(cache); // loads that outlived the limit can now be evicted
+        trim(cache);
       },
       () => {
         created.settled = true;
@@ -400,13 +331,11 @@ function cached<T>(
   const e = entry;
   e.refs++;
   trim(cache);
-  if (!signal) return e.promise; // pinned: never aborted on behalf of another caller
+  if (!signal) return e.promise;
   return new Promise<T>((resolve, reject) => {
     const detach = () => {
       e.refs--;
       if (e.refs <= 0 && !e.settled) {
-        // Decide after the current synchronous run: a replacement caller
-        // that attaches meanwhile keeps the fetch alive.
         queueMicrotask(() => {
           if (e.refs <= 0 && !e.settled) {
             e.controller.abort();
@@ -435,6 +364,15 @@ function cached<T>(
 
 type SceneStatus = { sceneId: string; status: RasterAvailability };
 
+export const PAIR_LOAD_RETRY_MESSAGE =
+  "The quicklook images for this pair could not be downloaded right now (network or server problem). Check your connection and press Retry.";
+
+export function isTransientFailure(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === "number" && (status >= 500 || status === 408 || status === 429);
+}
+
 export class RasterUnavailableError extends Error {
   constructor(
     message: string,
@@ -447,15 +385,10 @@ export class RasterUnavailableError extends Error {
 
 async function fetchText(url: string, signal?: AbortSignal): Promise<string> {
   const res = await fetch(url, { signal });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status} for ${url}`), { status: res.status });
   return res.text();
 }
 
-/**
- * Georeferencing KML of a scene, fetched once per scene (every channel's KML
- * describes the same geometry).  `preferPol`'s file is tried first, then the
- * scene's other channels.
- */
 function loadSceneKml(scene: NisarScene, preferPol: string, signal?: AbortSignal): Promise<string> {
   return cached(
     textCache,
@@ -469,7 +402,6 @@ function loadSceneKml(scene: NisarScene, preferPol: string, signal?: AbortSignal
           return await fetchText(url, sig);
         } catch (err) {
           if (isAbortError(err) || sig.aborted) throw err;
-          /* try the next channel's KML */
         }
       }
       throw new Error(`No georeferencing KML for ${scene.id}.`);
@@ -478,7 +410,6 @@ function loadSceneKml(scene: NisarScene, preferPol: string, signal?: AbortSignal
   );
 }
 
-/** Decoded source quicklook PNG of one scene and channel (native grid). */
 function loadSourceRaster(scene: NisarScene, pol: string, signal?: AbortSignal): Promise<Raster> {
   return cached(
     rasterCache,
@@ -492,10 +423,6 @@ function loadSourceRaster(scene: NisarScene, pol: string, signal?: AbortSignal):
   );
 }
 
-// ---------------------------------------------------------------------------
-// Scene grids: one scene + channel resampled onto an AOI grid
-// ---------------------------------------------------------------------------
-
 const SAMPLE_INDEX_LIMIT = 8;
 const sampleIndexCache = new Map<string, SampleIndex>();
 
@@ -503,10 +430,6 @@ function quadKey(quad: Quad): string {
   return CORNERS.map((k) => `${quad[k][0]},${quad[k][1]}`).join(";");
 }
 
-/**
- * Sample index for a quad, source size and AOI grid.  Every channel of a
- * scene (same KML, same source size) shares one index.
- */
 export function sampleIndexFor(
   quad: Quad,
   aoi: Aoi,
@@ -531,13 +454,10 @@ export function sampleIndexFor(
 
 interface SceneGrid {
   raster: Raster;
-  /** georeferencing the grid was resampled with */
   quad: Quad;
-  /** whether the quad came from the published KML or was derived */
   georef: "published" | "derived";
 }
 
-/** Per-scene georeferencing provenance (first determination wins). */
 const sceneGeoref = new Map<string, "published" | "derived">();
 
 function loadSceneGridEntry(
@@ -560,9 +480,6 @@ function loadSceneGridEntry(
         georef = "published";
       } catch (err) {
         if (isAbortError(err) || sig.aborted) throw err;
-        // Some products (e.g. provisional releases) publish no KML ground
-        // overlay; the swath corners in the quicklook determine the same
-        // georeferencing from the scene footprint.
         quad = deriveQuadFromImage(src, scene.footprint);
         georef = "derived";
       }
@@ -574,12 +491,6 @@ function loadSceneGridEntry(
   );
 }
 
-/**
- * One scene's quicklook for one channel, resampled onto the AOI grid
- * (outWidth x outputHeightFor(aoi, outWidth); 0 = nodata).  Independent of
- * any pair: results are cached per scene, channel, AOI, width and method
- * version, and are shared with every caller that asks for the same grid.
- */
 export function loadSceneGrid(
   scene: NisarScene,
   pol: string,
@@ -590,22 +501,10 @@ export function loadSceneGrid(
   return loadSceneGridEntry(scene, pol, aoi, outWidth, signal).then((g) => g.raster);
 }
 
-/**
- * Can the scene metadata alone tell that no quicklook can be fetched?  True
- * when none of the scene's own channels has a quicklook URL (discovery fills
- * the deterministic browse URL for HH/HV/VV/VH, so this only catches other
- * channel sets).  This is a static check; it never touches the network.
- */
 export function sceneHasQuicklook(scene: NisarScene): boolean {
   return scene.polarisations.some((pol) => Boolean(scene.quicklooks.png[pol]));
 }
 
-/**
- * Static raster availability of a pair, decided from scene metadata and the
- * prepared dataset only (no network): "metadata-only" when the two scenes
- * share no channel with a quicklook on both sides and no prepared dataset
- * covers the pair.
- */
 export function pairQuicklookStatus(
   before: NisarScene,
   after: NisarScene,
@@ -620,42 +519,22 @@ export function pairQuicklookStatus(
   return usable ? "available" : "metadata-only";
 }
 
-// ---------------------------------------------------------------------------
-// Pair assembly
-// ---------------------------------------------------------------------------
-
 export type ChannelStatus = "ready" | "loading" | "unavailable";
 
-/** One channel's rasters on the AOI grid. */
 export interface ChannelRasters {
   before: Raster;
   after: Raster;
-  /** change colour-scale saturation (in the encoding's unit) for this channel */
   saturation: number;
 }
 
 export interface PairDataset {
   viewer: ViewerDataset;
-  /** grid bounds (equal to the AOI this dataset was built for) */
   bounds: Aoi;
-  /** product ids of the scenes this dataset was built from */
   beforeId: string;
   afterId: string;
-  /**
-   * pairKey() of the selection this dataset was built for: AOI bounds,
-   * before/after ids and METHOD_VERSION, but not the channel.  It is
-   * displayed only while it equals the key of the current selection.
-   */
   key: string;
-  /**
-   * Identity of one build.  Constant across the snapshots of a build (which
-   * differ only in `perPol` / `channelStatus` as channels arrive), different
-   * for every new build, even of the same selection.
-   */
   instance: number;
-  /** rasters of the channels that are ready; a channel absent here has none */
   perPol: Record<string, ChannelRasters>;
-  /** state of every candidate channel (`viewer.polarisations`) */
   channelStatus: Record<string, ChannelStatus>;
 }
 
@@ -695,33 +574,16 @@ export interface BuildPairOptions {
   before: NisarScene;
   after: NisarScene;
   aoi: Aoi;
-  /** locally prepared dataset (example / calibrated), if it covers this pair */
   prepared?: PreparedDataset | null;
   areaLabel: string;
   outputWidth?: number;
-  /** channel to load first; the first available channel is used otherwise */
   channel?: string;
-  /**
-   * Called with a new snapshot of the dataset (same `key` and `instance`)
-   * whenever a channel that was still loading becomes ready or unavailable.
-   * Never called after `signal` aborts.
-   */
   onChannelUpdate?: (dataset: PairDataset) => void;
-  /** abort to drop the load; rejects with an AbortError */
   signal?: AbortSignal;
 }
 
 let nextInstance = 0;
 
-/**
- * Assemble the viewer dataset for a selected observation pair over an AOI.
- * Prefers locally prepared (possibly calibrated) rasters; otherwise the
- * public quicklooks, via loadSceneGrid.  Resolves as soon as one channel (the
- * requested one, else the first that loads) is ready; the other shared
- * channels keep loading and are delivered through `onChannelUpdate`.  Throws
- * RasterUnavailableError when no raster can be prepared, so callers can show
- * metadata and a processing status instead.
- */
 export async function buildPairDataset(opts: BuildPairOptions): Promise<PairDataset> {
   const { before, after, aoi, areaLabel, signal } = opts;
   throwIfAborted(signal);
@@ -745,7 +607,7 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
     prepared.beforeId === before.id &&
     prepared.afterId === after.id;
 
-  let channels: string[]; // candidate channels, in scene order
+  let channels: string[];
   let loadChannel: (pol: string) => Promise<Omit<ChannelRasters, "saturation">>;
   let encoding: RasterEncoding = QUICKLOOK_ENCODING;
   let limitations: string[];
@@ -789,8 +651,6 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
         loadSceneGridEntry(before, pol, aoi, outWidth, signal),
         loadSceneGridEntry(after, pol, aoi, outWidth, signal),
       ]);
-      // Published KMLs are identical files; derived quads only need to agree
-      // to the accuracy of the derivation (~1 km).
       const tolerance =
         b.georef === "derived" || a.georef === "derived" ? 0.05 : 1e-4;
       if (!quadsAgree(b.quad, a.quad, tolerance)) {
@@ -810,8 +670,8 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
   const channelStatus: Record<string, ChannelStatus> = {};
   for (const pol of channels) channelStatus[pol] = "loading";
   let lastError: unknown;
+  let transient = false;
 
-  /** Load one channel into the shared state; throws only on abort. */
   const attempt = async (pol: string): Promise<boolean> => {
     try {
       const loaded = await loadChannel(pol);
@@ -826,12 +686,11 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
       if (isAbortError(err) || signal?.aborted) throw err;
       channelStatus[pol] = "unavailable";
       lastError = err;
+      if (isTransientFailure(err)) transient = true;
       return false;
     }
   };
 
-  // The requested channel first; if it cannot be loaded, the next ones in
-  // order until one works.  Channels not needed for that stay untouched.
   const preferred = opts.channel && channels.includes(opts.channel) ? opts.channel : undefined;
   const order = preferred ? [preferred, ...channels.filter((p) => p !== preferred)] : channels;
   let first: string | null = null;
@@ -844,6 +703,7 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
   throwIfAborted(signal);
   if (first === null) {
     if (preparedMatches) throw lastError;
+    if (transient) throw new Error(PAIR_LOAD_RETRY_MESSAGE);
     throw new RasterUnavailableError(
       "Quicklook rasters for this pair are not available. Scene metadata is shown instead of a comparison.",
       metadataOnly(),
@@ -895,7 +755,6 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
   });
 
   const result = snapshot();
-  // Remaining channels load in the background into the same dataset.
   for (const pol of order) {
     if (channelStatus[pol] !== "loading") continue;
     attempt(pol).then(
@@ -903,7 +762,6 @@ export async function buildPairDataset(opts: BuildPairOptions): Promise<PairData
         if (!signal?.aborted) opts.onChannelUpdate?.(snapshot());
       },
       () => {
-        /* aborted: the pair was replaced or cleared */
       },
     );
   }

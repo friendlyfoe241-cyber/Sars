@@ -2,11 +2,6 @@ import { useEffect, useState } from "react";
 import { STEPS, type StepId } from "../lib/steps";
 import StepIcon from "./StepIcon";
 
-/**
- * Segmented step control.  The active indicator slides sideways to the
- * current step (a transform transition).  Shows labels on wide screens and
- * icons only on narrow ones.
- */
 export default function StepRail({
   active,
   available,
@@ -33,8 +28,6 @@ export default function StepRail({
     };
   }, []);
   const wide = vw >= 1100;
-  // icons only below 1100px; 44px targets on the narrowest phones so the
-  // header pill fits 320px
   const BW = wide ? 100 : vw < 360 ? 44 : 48;
   const idx = Math.max(0, STEPS.findIndex((s) => s.id === active));
 
@@ -53,8 +46,8 @@ export default function StepRail({
           left: 4,
           width: BW,
           transform: `translateX(${idx * BW}px)`,
-          background: "linear-gradient(135deg, #4F46E5, #6D4CE0)",
-          boxShadow: "inset 1px 1.5px 0 rgba(255,255,255,.45), 0 4px 14px rgba(99,102,241,.4)",
+          background: "var(--vx-accent)",
+          boxShadow: "0 4px 14px rgba(0,0,0,.45)",
         }}
       />
       {STEPS.map((step) => {
@@ -70,7 +63,7 @@ export default function StepRail({
             aria-label={ok ? (wide ? undefined : step.label) : `${step.label}, locked: ${step.locked}`}
             title={ok ? step.label : `${step.label}: ${step.locked}`}
             className="lg-btn relative flex items-center justify-center gap-2 rounded-full border-0 bg-transparent text-[13px] font-medium"
-            style={{ width: BW, minHeight: 44, color: on ? "#fff" : ok ? "#C9D0DA" : "#8A93A0" }}
+            style={{ width: BW, minHeight: 44, color: on ? "var(--vx-on-accent)" : ok ? "#C9D0DA" : "#8A93A0" }}
           >
             <StepIcon id={step.id} size={16} />
             {wide && step.label}

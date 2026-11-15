@@ -1,6 +1,5 @@
 import type { StepId } from "../lib/steps";
 
-/** 24 px stroke icons, 1.8 px, round joins (Vortex icon spec). */
 export default function StepIcon({ id, size = 22 }: { id: StepId; size?: number }) {
   const common = {
     width: size,

@@ -1,11 +1,4 @@
-/* Tables (observations, results) and the temporal graph.  They sit in the
- * glass panels of the Scenes and Explain pages; tables scroll inside their
- * own labelled containers, never the page. */
-
-/* ---- tables --------------------------------------------------------------- */
 .vx-instr-scroll {
-  /* containing block for the absolutely positioned .sr-only text inside the
-     table cells: without it they escape this scroller and widen the page */
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
@@ -111,6 +104,7 @@
   font: inherit;
   letter-spacing: inherit;
   text-transform: inherit;
+  border-radius: var(--vx-btn-radius);
   cursor: pointer;
 }
 .vx-itable__sort { min-height: 44px; padding: 0 4px; margin: 0 -4px; }
@@ -157,10 +151,9 @@
   line-height: 16px;
 }
 
-/* ---- graph ----------------------------------------------------------------- */
 .vx-graph { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .vx-graph__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 6px 12px 0; flex: none; }
-.vx-graph__seg { flex: none; padding: 2px; gap: 2px; flex-wrap: nowrap; }
+.vx-graph__seg { flex: none; padding: 2px; gap: 2px; flex-wrap: nowrap; border-radius: calc(var(--vx-btn-radius) + 2px); }
 .vx-graph__seg .vx-segment { flex: 0 0 auto; padding-inline: 10px; }
 .vx-graph__seg .vx-segment { white-space: nowrap; padding: 2px 12px; font-size: 12px; }
 .vx-graph__ctx { flex: 1 1 0; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vx-text-muted); font: 400 11px/16px var(--vx-font-mono); }
@@ -191,8 +184,6 @@
 .vx-mark__hit { fill: transparent; stroke: none; }
 .vx-mark:hover > .vx-mark__hit { fill: rgb(255 255 255 / 4%); }
 .vx-mark:focus-visible > .vx-mark__hit { stroke: var(--vx-focus); stroke-width: 2; }
-/* Put .sr-only on a wrapper, never on a <table>: a table ignores width:1px and
-   stays as wide as its content, widening the page's scrollable area. */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -204,6 +195,5 @@
 
 
 @media (max-width: 767px) {
-  /* the table scrolls sideways inside its labelled region, never the page */
   .vx-itable--obs { min-width: 560px; }
 }

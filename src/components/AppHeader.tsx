@@ -8,15 +8,10 @@ const DOT: Record<ChipTone, string> = {
   idle: "#a3adbd",
   busy: "#7cc4ff",
   ok: "#86e3b5",
-  warn: "#d4bcff",
+  warn: "#f4d774",
   error: "#ff9aa6",
 };
 
-/**
- * The floating glass header: a centred pill with the five-step rail, the live
- * status of the selection and the way back to the globe.  It slides in from
- * the top edge whenever the workspace is revealed.
- */
 export default function AppHeader({
   active,
   available,
@@ -51,6 +46,7 @@ export default function AppHeader({
               style={{ background: DOT[statusTone] }}
             />
             {statusLabel}
+            <span className="sr-only">. {statusNote}</span>
           </span>
           <button
             type="button"

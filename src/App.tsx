@@ -3,17 +3,21 @@ import { ChevronRight, FileJson, FileSpreadsheet, FileText, Maximize2, Minimize2
 import { isAbortError } from "./lib/abort";
 import AnalysisPanel, { type AnalysisState } from "./components/AnalysisPanel";
 import {
+  ANALYSIS_UNREACHABLE,
   AnalysisError,
   analysisBase,
+  friendlyServiceMessage,
   prefetchAnalysis,
   submitAnalysis,
   waitForAnalysis,
   type AnalysisRequest,
   type AnalysisResult,
 } from "./lib/analysisApi";
+import { changeLabel, methodLabel, neutralResult } from "./lib/analysisWording";
 import { downloadFile, reportCsv, reportHtml, reportJson, type ReportInput } from "./lib/exportReport";
 import { DateFilter, ManualPair, PairSummary, SuggestedPairs } from "./components/Catalogue";
 import ComparePanel from "./components/ComparePanel";
+import ErrorBoundary from "./components/ErrorBoundary";
 import MapStage from "./components/MapStage";
 import MapView from "./components/MapView";
 import ObservationsTable from "./components/ObservationsTable";
@@ -56,9 +60,11 @@ import {
 } from "./lib/data";
 import { searchNisarGcov, type NisarScene } from "./lib/discovery";
 import { geocodePlace } from "./lib/geocode";
-import { findCompatiblePairs, type ScenePair } from "./lib/pairing";
+import { chronological, findCompatiblePairs, type ScenePair } from "./lib/pairing";
 import {
+  PAIR_LOAD_RETRY_MESSAGE,
   buildPairDataset,
+  isTransientFailure,
   pairQuicklookStatus,
   type PairDataset,
   RasterUnavailableError,
@@ -85,7 +91,6 @@ import {
 
 const IDLE_AI: AiState = { status: "idle" };
 const IDLE_ANALYSIS: AnalysisState = { status: "idle" };
-/** which way the step pages slide: by step order */
 type SwapDir = "next" | "prev";
 const STEP_IDS = STEPS.map((x) => x.id);
 const NEXT_STEP: Record<StepId, StepId | null> = {
@@ -95,17 +100,17 @@ const NEXT_STEP: Record<StepId, StepId | null> = {
   change: "explain",
   explain: null,
 };
+const EXPLAIN_UNREACHABLE = "The explanation service is not reachable right now. Try again in a moment.";
 const METADATA_ONLY_MESSAGE =
   "Quicklook rasters for this pair are not available. Scene metadata is shown instead of a comparison.";
 
-/** Trimmed calibrated results for the Gemini payload (computed facts only). */
 function analysisFacts(result?: AnalysisResult) {
   if (!result) return null;
   return {
-    eventType: result.eventType,
+    eventType: changeLabel(result),
     acquisitionDates: result.acquisitionDates,
     processing: {
-      eventMethod: result.processing.eventMethod,
+      eventMethod: methodLabel(result.processing.eventMethod),
       methodParameters: result.processing.methodParameters,
       unitsOfResults: result.processing.unitsOfResults,
     },
@@ -119,10 +124,8 @@ function analysisFacts(result?: AnalysisResult) {
 }
 
 export default function App() {
-  // ---- example dataset (public/data) ---------------------------------
   const [example, setExample] = useState<PreparedDataset | null>(null);
 
-  // ---- location and AOI ---------------------------------------------
   const [locationLabel, setLocationLabel] = useState("");
   const [locationError, setLocationError] = useState<string | null>(null);
   const [searchingLocation, setSearchingLocation] = useState(false);
@@ -131,82 +134,58 @@ export default function App() {
   const [drawMode, setDrawMode] = useState(false);
   const [fitKey, setFitKey] = useState(0);
 
-  // ---- catalogue search ---------------------------------------------
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [datesSwapped, setDatesSwapped] = useState(false);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [scenes, setScenes] = useState<NisarScene[]>([]);
   const [truncated, setTruncated] = useState(false);
 
-  // ---- selection and pair -------------------------------------------
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [roleBefore, setRoleBefore] = useState<string | null>(null);
   const [roleAfter, setRoleAfter] = useState<string | null>(null);
   const [pairState, setPairState] = useState<PairState>(IDLE_PAIR);
-  // Pairs whose rasters turned out to be unavailable (learned from a failed
-  // load); listed as "Metadata only" from then on.
   const [unavailablePairs, setUnavailablePairs] = useState<ReadonlySet<string>>(new Set());
 
-  // ---- shell (presentation only) -------------------------------------
   useGlassProximity();
-  // The hero is an overlay: the workspace (and its data loading) is mounted
-  // underneath from the first render.
   const [heroOpen, setHeroOpen] = useState(true);
   const [heroIntro, setHeroIntro] = useState(true);
   const hero = usePresence(heroOpen);
   const [step, setStep] = useState<StepId>("locate");
   const stepRef = useRef<StepId>("locate");
-  // the step auto-advance last put the user on (null once they navigate away)
   const autoRef = useRef<StepId | null>(null);
-  // Step pages: the incoming page slides in from the side its step lies on
-  // (by step order); the outgoing one stays mounted for one motion duration
-  // to slide out the other way.
   const [enterDir, setEnterDir] = useState<SwapDir>("next");
   const [leavingPage, setLeavingPage] = useState<{ id: StepId; dir: SwapDir } | null>(null);
-  // a request to focus the current page heading (every step change)
   const [focusReq, setFocusReq] = useState(0);
   const [vw, setVw] = useState(() => window.innerWidth);
   const phone = vw < 768;
-  // phones: the map stage can take the whole page, and back
   const [mapExpanded, setMapExpanded] = useState(false);
   const [graphView, setGraphView] = useState<GraphView>("date");
-  // With a pair loaded only its own footprints are drawn unless restored.
   const [showAllFootprints, setShowAllFootprints] = useState(false);
 
-  // ---- viewer --------------------------------------------------------
   const [pol, setPol] = useState("");
-  // The display choice belongs to the loaded pair build: a new pair (or none)
-  // starts in Compare again.
   const [layerPick, setLayerPick] = useState<{ instance: number | null; layer: DisplayChoice }>({
     instance: null,
     layer: "compare",
   });
-  // The explanation is stored with the selection key it was requested for
-  // and only shown while that key is the current one.
   const [aiEntry, setAiEntry] = useState<{ key: string; state: AiState } | null>(null);
-  // Calibrated analysis runs against the Python pipeline; same key rule.
   const [analysisEntry, setAnalysisEntry] = useState<{
     key: string;
     state: AnalysisState;
   } | null>(null);
 
-  // Cancellation: every search / pair load has an AbortController and a
-  // sequence number.  The controller drops the fetches; the sequence check is
-  // the final guard against a late response being applied.
   const searchSeq = useRef(0);
+  const transientFailures = useRef<Map<string, number>>(new Map());
   const pairSeq = useRef(0);
   const searchAbort = useRef<AbortController | null>(null);
   const pairAbort = useRef<AbortController | null>(null);
   const aiRequest = useRef<string | null>(null);
   const analysisAbort = useRef<AbortController | null>(null);
   const aoiRef = useRef<Aoi | null>(null);
-  // Channel to load first for the next pair (read at load time only).
   const polRef = useRef("");
 
-  // ---- selection identity and everything derived from it -------------
-  // Suggested pairs; ones known to lack rasters sort last and are labelled.
   const { pairs, metadataOnlyPairIds } = useMemo(() => {
     const raw = findCompatiblePairs(scenes, { aoi: aoi ?? undefined });
     const metadataOnly = new Set<string>();
@@ -235,11 +214,8 @@ export default function App() {
     [aoi, roleBefore, roleAfter],
   );
   const currentPairKey = pairBase ? pairKey(pairBase) : null;
-  // The only place a loaded result is matched against the selection.
   const activePair = selectCurrentPair(pairState, currentPairKey);
   const viewer: ViewerDataset | null = activePair?.viewer ?? null;
-  // The channel is always one the active pair has loaded (other channels of
-  // the pair may still be loading or unavailable).
   const readyChannels = activePair
     ? activePair.viewer.polarisations.filter((p) => activePair.channelStatus[p] === "ready")
     : [];
@@ -269,14 +245,10 @@ export default function App() {
     layerRequest,
   );
 
-  // One set of statistics per channel, shared by the left panel, the results
-  // table and the graph.  Other channels are only computed for side by side.
   const [bothChannels, setBothChannels] = useState(false);
   const pairStats = usePairStats(activePair, channel, bothChannels);
   const summary = pairStats?.byChannel[channel]?.change ?? null;
 
-  // Memoised on its real inputs: a fresh object every render would defeat
-  // memo() on the panels that receive it.
   const sceneCount = scenes.length;
   const suggestedPairCount = pairs.length;
   const viewState = useMemo(
@@ -314,14 +286,12 @@ export default function App() {
       ? analysisEntry.state
       : IDLE_ANALYSIS;
 
-  // ---- invalidation ---------------------------------------------------
   const abortPairLoad = useCallback(() => {
     pairSeq.current++;
     pairAbort.current?.abort();
     pairAbort.current = null;
   }, []);
 
-  /** Drop the loaded pair, in-flight load and explanation (not the scenes). */
   const clearPair = useCallback(() => {
     abortPairLoad();
     aiRequest.current = null;
@@ -332,13 +302,6 @@ export default function App() {
     setAnalysisEntry(null);
   }, [abortPairLoad]);
 
-  /**
-   * The single entry point for every AOI change.  When the AOI actually
-   * changes, one batched update drops the scene list (it belongs to the
-   * previous area), role assignments, loaded pair, statistics, overlay (all
-   * derived from the pair) and the explanation, and cancels in-flight search
-   * and pair loads.
-   */
   const commitAoi = useCallback(
     (next: Aoi, opts: { fit?: boolean } = {}) => {
       const previous = aoiRef.current;
@@ -369,14 +332,10 @@ export default function App() {
     [abortPairLoad],
   );
 
-  // A selection change (before/after assignment) invalidates any pair load
-  // that belongs to another selection.  Display is already guarded by the key
-  // check above; this releases the stale data and cancels the fetches.
   useEffect(() => {
     if (pairState.status !== "idle" && pairState.key !== currentPairKey) clearPair();
   }, [pairState, currentPairKey, clearPair]);
 
-  // ---- startup: the prepared example dataset -------------------------
   useEffect(() => {
     let cancelled = false;
     loadManifest()
@@ -387,21 +346,16 @@ export default function App() {
           beforeId: m.acquisitionPair.earlier.productId,
           afterId: m.acquisitionPair.later.productId,
         });
-        // The example study area is the initial AOI only; nothing is loaded
-        // or searched until the user asks for it.  The first AOI frames the
-        // map once; if the user already chose an area, leave everything be.
         if (!aoiRef.current) commitAoi(m.studyArea.bounds, { fit: true });
         setLocationLabel((current) => current || `${m.studyArea.name}, ${m.studyArea.country}`);
       })
       .catch(() => {
-        /* the example dataset is optional; discovery works without it */
       });
     return () => {
       cancelled = true;
     };
   }, [commitAoi]);
 
-  // ---- location and AOI handlers ------------------------------------
   const applyLocation = useCallback(
     (lat: number, lon: number, label: string) => {
       commitAoi(aoiFromCenter(lat, lon, aoiSizeKm), { fit: true });
@@ -443,8 +397,6 @@ export default function App() {
     }
   }, [applyLocation]);
 
-  // A map click moves the area of interest on the Locate page only (MapView
-  // ignores clicks elsewhere).
   const handlePickLocation = useCallback(
     (lat: number, lon: number) => {
       setDrawMode(false);
@@ -454,7 +406,7 @@ export default function App() {
   );
 
   const handleAoiDrawn = useCallback((drawn: Aoi) => {
-    commitAoi(clampAoi(drawn)); // drawing never moves the camera
+    commitAoi(clampAoi(drawn));
     setDrawMode(false);
     setLocationLabel("Custom area of interest");
     setLocationError(null);
@@ -478,21 +430,19 @@ export default function App() {
     setLocationLabel(`${m.studyArea.name}, ${m.studyArea.country}`);
   }, [example, commitAoi]);
 
-  // ---- catalogue search ---------------------------------------------
   const runSearch = useCallback(
     async (bounds: Aoi, from: string, to: string) => {
       const seq = ++searchSeq.current;
       searchAbort.current?.abort();
       const controller = new AbortController();
       searchAbort.current = controller;
-      abortPairLoad(); // abandon any pair load started for the old results
+      abortPairLoad();
       aiRequest.current = null;
       analysisAbort.current?.abort();
       analysisAbort.current = null;
       setSearching(true);
       setSearchError(null);
       setSearched(true);
-      // A new search never keeps stale results or a stale comparison.
       setScenes([]);
       setSelectedSceneId(null);
       setRoleBefore(null);
@@ -530,7 +480,11 @@ export default function App() {
   }, [aoi, dateFrom, dateTo, runSearch]);
 
   const handleApplyDates = useCallback(
-    (from: string, to: string) => {
+    (rawFrom: string, rawTo: string) => {
+      const swap = Boolean(rawFrom && rawTo && rawFrom > rawTo);
+      const from = swap ? rawTo : rawFrom;
+      const to = swap ? rawFrom : rawTo;
+      setDatesSwapped(swap);
       setDateFrom(from);
       setDateTo(to);
       if (aoi) void runSearch(aoi, from, to);
@@ -538,10 +492,10 @@ export default function App() {
     [aoi, runSearch],
   );
 
-  // ---- pair loading --------------------------------------------------
   const loadPair = useCallback(
-    async (before: NisarScene, after: NisarScene) => {
+    async (first: NisarScene, second: NisarScene) => {
       if (!aoi) return;
+      const [before, after] = chronological(first, second);
       const key = pairKey({
         aoi,
         beforeId: before.id,
@@ -554,7 +508,6 @@ export default function App() {
       analysisAbort.current = null;
       setAiEntry(null);
       setAnalysisEntry(null);
-      // Metadata alone can say the pair has no quicklook: no network needed.
       if (pairQuicklookStatus(before, after, example) === "metadata-only") {
         setPairState({ status: "error", key, message: METADATA_ONLY_MESSAGE, metadataOnly: true });
         return;
@@ -562,11 +515,7 @@ export default function App() {
       const seq = ++pairSeq.current;
       const controller = new AbortController();
       pairAbort.current = controller;
-      // The previous pair's results are gone before the first await.
       setPairState({ status: "loading", key });
-      // Channels beyond the first arrive after the pair is ready.  An update
-      // can land before the awaited result is applied, so the newest
-      // snapshot of this build is kept here as well.
       let latest = null as PairDataset | null;
       try {
         const dataset = await buildPairDataset({
@@ -588,22 +537,33 @@ export default function App() {
           },
         });
         if (seq !== pairSeq.current) return;
+        transientFailures.current.delete(scenePairId(before.id, after.id));
         setPairState({ status: "ready", key, dataset: latest ?? dataset });
         setPol(Object.keys(dataset.perPol)[0] ?? "");
       } catch (err) {
         if (seq !== pairSeq.current || isAbortError(err)) return;
-        const metadataOnly = err instanceof RasterUnavailableError;
+        const pairId = scenePairId(before.id, after.id);
+        const transient = isTransientFailure(err);
+        const failures = transient ? (transientFailures.current.get(pairId) ?? 0) + 1 : 0;
+        if (transient) transientFailures.current.set(pairId, failures);
+        const metadataOnly = err instanceof RasterUnavailableError || failures >= 3;
         if (metadataOnly) {
-          setUnavailablePairs((cur) => new Set(cur).add(scenePairId(before.id, after.id)));
+          setUnavailablePairs((cur) => new Set(cur).add(pairId));
         }
         setPairState({
           status: "error",
           key,
           metadataOnly,
           message:
-            err instanceof Error
+            err instanceof RasterUnavailableError
               ? err.message
-              : "The rasters for this pair could not be prepared.",
+              : metadataOnly
+                ? METADATA_ONLY_MESSAGE
+                : transient
+                  ? PAIR_LOAD_RETRY_MESSAGE
+                  : err instanceof Error
+                    ? err.message
+                    : "The rasters for this pair could not be prepared.",
         });
       }
     },
@@ -621,29 +581,32 @@ export default function App() {
 
   const handleLoadPair = useCallback(
     (beforeId: string, afterId: string) => {
-      const before = scenes.find((s) => s.id === beforeId);
-      const after = scenes.find((s) => s.id === afterId);
-      if (before && after) void loadPair(before, after);
+      const first = scenes.find((s) => s.id === beforeId);
+      const second = scenes.find((s) => s.id === afterId);
+      if (!first || !second) return;
+      const [before, after] = chronological(first, second);
+      setRoleBefore(before.id);
+      setRoleAfter(after.id);
+      void loadPair(before, after);
     },
     [scenes, loadPair],
   );
 
   const handleLoadSuggested = useCallback(
     (pair: ScenePair) => {
-      setRoleBefore(pair.before.id);
-      setRoleAfter(pair.after.id);
-      setSelectedSceneId(pair.after.id);
-      void loadPair(pair.before, pair.after);
+      const [before, after] = chronological(pair.before, pair.after);
+      setRoleBefore(before.id);
+      setRoleAfter(after.id);
+      setSelectedSceneId(after.id);
+      void loadPair(before, after);
     },
     [loadPair],
   );
 
-  // ---- Gemini explain ------------------------------------------------
   const handleExplain = useCallback(async () => {
     if (!viewer || !summary || !currentSelectionKey) return;
     const key = currentSelectionKey;
     aiRequest.current = key;
-    // A response is applied only if no newer request or invalidation replaced it.
     const settle = (state: AiState) => {
       if (aiRequest.current === key) setAiEntry({ key, state });
     };
@@ -669,12 +632,8 @@ export default function App() {
             limitations: viewer.limitations,
           },
           statistics: summary,
-          // calibrated results from the processing pipeline, when this
-          // selection has completed one (trimmed to the facts the model may use)
           analysis: analysisFacts(analysis.job?.result),
         });
-      // Vercel serves the endpoint same-origin; static hosting falls back to
-      // the analysis worker, which exposes the same endpoint.
       let res = await fetch("/api/explain-change", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -689,34 +648,46 @@ export default function App() {
       }
       const body = await res.json().catch(() => null);
       if (!res.ok) {
+        const raw = body && typeof body.error === "string" ? body.error : "";
         settle({
           status: "error",
-          message:
-            body && typeof body.error === "string"
-              ? body.error
-              : `The explanation service returned an error (${res.status}).`,
+          message: import.meta.env.DEV
+            ? raw || `The explanation service returned HTTP ${res.status}. Run \`vercel dev\` instead of \`npm run dev\` for the /api routes.`
+            : raw && !/GEMINI|API key|HTTP \d{3}/i.test(raw)
+              ? raw
+              : EXPLAIN_UNREACHABLE,
         });
         return;
       }
       const exp = body?.explanation as AiExplanation | undefined;
-      if (!exp) {
+      if (
+        !exp ||
+        typeof exp !== "object" ||
+        !["observedSignal", "possibleIndication", "limitations"].some(
+          (k) => typeof (exp as unknown as Record<string, unknown>)[k] === "string",
+        )
+      ) {
         settle({
           status: "error",
-          message: "Unexpected response from the explanation service.",
+          message: import.meta.env.DEV ? "Unexpected response from the explanation service." : EXPLAIN_UNREACHABLE,
         });
         return;
       }
-      settle({ status: "done", explanation: exp });
+      settle({
+        status: "done",
+        explanation: exp,
+        model: typeof body?.model === "string" && body.model ? body.model : undefined,
+      });
     } catch {
       settle({
         status: "error",
-        message:
-          "The explanation endpoint is not available. In local development run `vercel dev` instead of `npm run dev`.",
+        message: import.meta.env.DEV
+          ? "The explanation endpoint is not available. In local development run `vercel dev` instead of `npm run dev`."
+          : EXPLAIN_UNREACHABLE,
       });
     }
   }, [viewer, summary, channel, currentSelectionKey, analysis]);
 
-  // ---- calibrated analysis (Python pipeline) --------------------------
   const buildAnalysisRequest = useCallback((): AnalysisRequest | null => {
     if (!aoi || !viewer || !currentSelectionKey) return null;
     return {
@@ -730,9 +701,6 @@ export default function App() {
     };
   }, [aoi, viewer, channel, currentSelectionKey]);
 
-  // Warm the worker's download cache as soon as the Explain step opens on a
-  // pair: the Harmony retrieval runs in the background, so "Run calibrated
-  // analysis" later finds the data ready and completes in seconds.
   const prefetchedKeys = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (step !== "explain" || analysis.status !== "idle") return;
@@ -767,7 +735,7 @@ export default function App() {
         settle({
           status: "error",
           job,
-          message: job.error?.message ?? "The analysis failed.",
+          message: friendlyServiceMessage(job.error?.code, job.error?.message),
         });
       }
     } catch (err) {
@@ -777,12 +745,13 @@ export default function App() {
         message:
           err instanceof AnalysisError
             ? err.message
-            : `The analysis service is not available. ${err instanceof Error ? err.message : ""}`,
+            : import.meta.env.DEV && err instanceof Error
+              ? `${ANALYSIS_UNREACHABLE} (${err.message})`
+              : ANALYSIS_UNREACHABLE,
       });
     }
   }, [buildAnalysisRequest, currentSelectionKey]);
 
-  // ---- exports (JSON / CSV / printable report) ------------------------
   const handleExport = useCallback(
     async (kind: "json" | "csv" | "report") => {
       const toDataUrl = async (url?: string) => {
@@ -804,10 +773,10 @@ export default function App() {
         areaLabel: locationLabel || (aoi ? formatAoi(aoi) : ""),
         bbox: aoi ? [aoi.west, aoi.south, aoi.east, aoi.north] : null,
         eventLabel: result
-          ? "Potential vegetation disturbance (candidate deforestation-related change)"
-          : "Surface change (quicklook comparison)",
+          ? changeLabel(result)
+          : "Surface change (quicklook comparison, display brightness, not calibrated)",
         pairStats,
-        analysis: result,
+        analysis: result ? neutralResult(result) : null,
         images:
           kind === "report"
             ? {
@@ -842,7 +811,6 @@ export default function App() {
     if (roleBefore && roleAfter) handleLoadPair(roleBefore, roleAfter);
   }, [roleBefore, roleAfter, handleLoadPair]);
 
-  // ---- step navigation ------------------------------------------------
   const stepAvailable: Record<StepId, boolean> = {
     locate: true,
     scenes: searched || searching,
@@ -867,10 +835,6 @@ export default function App() {
     };
   }, []);
 
-  /**
-   * Open step `id` as the current page.  The page that was showing slides out
-   * (unless the hero covers the swap) and focus moves to the new page heading.
-   */
   const showStep = useCallback((id: StepId, opts: { fromHero?: boolean } = {}) => {
     const from = stepRef.current;
     if (from !== id) {
@@ -880,14 +844,13 @@ export default function App() {
       setEnterDir(dir);
       setLeavingPage(opts.fromHero || prefersReducedMotion() ? null : { id: from, dir });
       setMapExpanded(false);
-      if (id !== "locate") setDrawMode(false); // drawing belongs to Locate
+      if (id !== "locate") setDrawMode(false);
     }
     setFocusReq((n) => n + 1);
   }, []);
   const goTo = useCallback((id: StepId) => showStep(id), [showStep]);
   const autoStep = goTo;
 
-  // the outgoing page is dropped once its exit has played
   useEffect(() => {
     if (!leavingPage) return;
     const t = window.setTimeout(() => setLeavingPage(null), MOTION_MS);
@@ -902,9 +865,6 @@ export default function App() {
     return () => cancelAnimationFrame(id);
   }, [focusReq]);
 
-  // Walk the user forward as the workflow progresses: a search starts ->
-  // Scenes; compatible pairs found -> Pairs; a pair is ready -> Change.  Only
-  // while the user is still where auto-advance (or the Pairs page) left them.
   const prevSearching = useRef(false);
   useEffect(() => {
     if (searching && !prevSearching.current) {
@@ -912,7 +872,6 @@ export default function App() {
       autoRef.current = "scenes";
     }
     if (!searching && prevSearching.current && !searchError && pairs.length > 0) {
-      // only if the user is still where auto-advance left them
       if (stepRef.current === autoRef.current) {
         autoStep("pairs");
         autoRef.current = "pairs";
@@ -942,15 +901,11 @@ export default function App() {
     setHeroOpen(true);
   }, []);
 
-  // Scenes by role, for the observation panel (stable references).
   const sceneById = useMemo(() => new Map(scenes.map((sc) => [sc.id, sc])), [scenes]);
   const beforeScene = (roleBefore && sceneById.get(roleBefore)) || null;
   const afterScene = (roleAfter && sceneById.get(roleAfter)) || null;
   const selectedScene = (selectedSceneId && sceneById.get(selectedSceneId)) || null;
 
-  // ---- observations table: derived from the same key-gated active pair ---
-  // Scenes known to lack usable rasters: every suggested pair containing the
-  // scene is metadata-only, or the selected pair is known unavailable.
   const metadataOnlySceneIds = useMemo(() => {
     const tally = new Map<string, { total: number; meta: number }>();
     for (const p of pairs) {
@@ -978,7 +933,6 @@ export default function App() {
     return ids;
   }, [pairs, metadataOnlyPairIds, roleBefore, roleAfter, sceneById, unavailablePairs, example]);
 
-  // ---- header status reflects the real selection -----------------------
   let statusLabel = "No comparison loaded";
   let statusTone: ChipTone = "idle";
   let statusNote = "Search for NISAR observations to load a comparison.";
@@ -1000,7 +954,6 @@ export default function App() {
     statusTone = "error";
   }
 
-  // ---- step pages ------------------------------------------------------------
   const stepBlurb: Record<StepId, string> = {
     locate: "Pick a place and the area to watch, then search the NISAR catalogue.",
     scenes: "NISAR passes over your area. Mark a Before and an After scene.",
@@ -1009,7 +962,6 @@ export default function App() {
     explain: "Change statistics and an AI reading of what they may mean.",
   };
 
-  // States worth a notice in the steps that cannot show their content yet.
   const pendingNotice =
     viewState.kind === "searching" ||
     viewState.kind === "loading-raster" ||
@@ -1048,7 +1000,6 @@ export default function App() {
       onSelectScene={setSelectedSceneId}
     />
   );
-  // the legend inside the page (Change, Explain); elsewhere it floats on the map
   const legendInline =
     viewState.kind === "ready" || viewState.kind === "no-valid-pixels" ? (
       <div className="vx-section">
@@ -1062,7 +1013,6 @@ export default function App() {
       </div>
     ) : null;
 
-  /** Steps whose page has the map; the others are a full-page empty state. */
   const hasMap: Record<StepId, boolean> = {
     locate: true,
     scenes: stepAvailable.scenes,
@@ -1131,7 +1081,14 @@ export default function App() {
           <div className="vx-page__content">
             <Panel area="info">
               {notice("scenes")}
-              <DateFilter dateFrom={dateFrom} dateTo={dateTo} searching={searching} onApply={handleApplyDates} />
+              <DateFilter key={`${dateFrom}|${dateTo}`} dateFrom={dateFrom} dateTo={dateTo} searching={searching} onApply={handleApplyDates} />
+              {datesSwapped && (
+                <div className="vx-section">
+                  <p className="vx-note" role="status">
+                    From was later than To, so the dates were swapped: searching {dateFrom} to {dateTo}.
+                  </p>
+                </div>
+              )}
               {truncated && (
                 <div className="vx-section">
                   <p className="vx-note">
@@ -1170,6 +1127,11 @@ export default function App() {
                 right={<span className="vx-panel__meta">{pairs.length} compatible</span>}
               >
                 <div className="px-4 pt-1 pb-3">{stateNotice("pairs")}</div>
+                {datesSwapped && (
+                  <p className="vx-note px-4 pb-3" role="status">
+                    From was later than To, so the dates were swapped: searching {dateFrom} to {dateTo}.
+                  </p>
+                )}
                 <SuggestedPairs
                   pairs={pairs}
                   metadataOnlyPairIds={metadataOnlyPairIds}
@@ -1224,13 +1186,15 @@ export default function App() {
           <div className="vx-page__content">
             <Panel area="ai">
               {viewState.kind === "no-valid-pixels" && notice("explain")}
-              <AnalysisPanel
-                state={analysis}
-                polarisation={channel}
-                beforeDate={formatDate(viewState.dataset.viewer.earlier.startTime)}
-                afterDate={formatDate(viewState.dataset.viewer.later.startTime)}
-                onRun={handleRunAnalysis}
-              />
+              <ErrorBoundary key={currentSelectionKey ?? "none"} compact title="The calibrated analysis could not be shown">
+                <AnalysisPanel
+                  state={analysis}
+                  polarisation={channel}
+                  beforeDate={formatDate(viewState.dataset.viewer.earlier.startTime)}
+                  afterDate={formatDate(viewState.dataset.viewer.later.startTime)}
+                  onRun={handleRunAnalysis}
+                />
+              </ErrorBoundary>
               <StatsPanel
                 dataset={viewState.dataset.viewer}
                 pol={channel}
@@ -1252,7 +1216,7 @@ export default function App() {
                   locationLabel={locationLabel}
                 />
               </DisclosureSection>
-              <DisclosureSection title="Export results" summary="JSON · CSV · report">
+              <DisclosureSection title="Export results" summary="JSON · CSV · HTML">
                 <div className="flex flex-wrap gap-2 px-1 pb-2">
                   <button
                     type="button"
@@ -1273,12 +1237,13 @@ export default function App() {
                     className="vx-button vx-button--ghost vx-button--compact"
                     onClick={() => void handleExport("report")}
                   >
-                    <FileText size={14} aria-hidden /> Report (print to PDF)
+                    <FileText size={14} aria-hidden /> HTML report
                   </button>
                 </div>
                 <p className="vx-note px-1">
                   Exports contain the displayed statistics, the calibrated analysis results when
-                  one has run, and the AI interpretation clearly labelled as generated.
+                  one has run, and the AI interpretation clearly labelled as generated. The HTML
+                  report downloads as a file you can open in a browser and print to PDF.
                 </p>
               </DisclosureSection>
             </Panel>
@@ -1319,7 +1284,6 @@ export default function App() {
         data-leave={current ? undefined : dir}
         data-map-expanded={current && map && mapExpanded ? "" : undefined}
         inert={!current}
-        aria-hidden={current ? undefined : true}
       >
         <div className="vx-page__head">
           <span className="vx-page__icon">
@@ -1339,7 +1303,7 @@ export default function App() {
           )}
         </div>
         {map && <div className="vx-page__map" data-map-slot={current ? "" : undefined} />}
-        {pageBody(id)}
+        <ErrorBoundary key={id}>{pageBody(id)}</ErrorBoundary>
       </div>
     );
   };
@@ -1348,9 +1312,8 @@ export default function App() {
     <div className="vx-shell relative h-full overflow-hidden bg-black text-app-text" data-hero={heroOpen}>
       <LiquidGlassFilter animate={heroOpen} />
 
-      {/* deep space behind the page frame */}
       <div className="absolute inset-0" aria-hidden="true">
-        <Starfield count={110} animate={false} nebula={false} />
+        <Starfield count={110} animate={false} />
       </div>
 
       <div className="vx-frame" inert={heroOpen}>
@@ -1372,7 +1335,6 @@ export default function App() {
         <main className="vx-frame__body">
           {leavingPage && renderPage(leavingPage.id, false, leavingPage.dir)}
           {renderPage(step, true, enterDir)}
-          {/* the one map: laid over the current page's map slot */}
           <MapStage slotKey={`${step}|${hasMap[step]}|${mapExpanded}`} heroOpen={heroOpen}>
             <MapView
               aoi={aoi}

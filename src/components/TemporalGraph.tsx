@@ -17,8 +17,6 @@ interface TemporalGraphProps {
   onView: (v: GraphView) => void;
 }
 
-// Wording follows the dataset encoding, as the change view does: display-DN
-// quicklooks are stretched per scene; other encodings are plain stored DN.
 const CAPTION_DN =
   "Per-scene stretched browse brightness — not comparable in magnitude between dates; not calibrated gamma-0.";
 const CAPTION_STORED = "Stored 8-bit raster values of each acquisition, over pixels valid in both dates.";
@@ -58,8 +56,6 @@ function Tooltip({ tip, w }: { tip: Tip | null; w: number }) {
   );
 }
 
-// ---- By date ---------------------------------------------------------------
-
 function ByDatePlot({
   stats,
   channel,
@@ -74,12 +70,11 @@ function ByDatePlot({
   setTip: (t: Tip | null) => void;
 }) {
   const own = stats.byChannel[channel];
-  const secondary = channel !== "HH"; // HH is cyan; any other channel is the violet, dashed, hollow variant
+  const secondary = channel !== "HH";
   const colour = secondary ? "var(--vx-series-2)" : "var(--vx-series-1)";
   const pw = Math.max(10, w - M.l - M.r);
   const ph = Math.max(10, h - M.t - M.b);
 
-  // chronological marks: index into own.dates keeps the stats <-> acquisition link
   const marks = useMemo(
     () =>
       stats.acquisitions
@@ -204,8 +199,6 @@ function ByDatePlot({
   );
 }
 
-// ---- Change distribution ----------------------------------------------------
-
 const R_STEPS = [10, 20, 30, 40, 60, 80, 100, 150, 200, 255];
 
 interface Bin {
@@ -219,7 +212,6 @@ function buildBins(stats: PairStats, channel: string) {
   const counts = delta.counts;
   const valid = delta.valid;
   const mid = 255;
-  // extent holding all but the outer 0.25% on each side
   const cut = valid * 0.0025;
   let lo = 0;
   let acc = 0;
@@ -401,12 +393,9 @@ function DeltaPlot({
   );
 }
 
-// ---- Panel body ---------------------------------------------------------------
-
 function TemporalGraph({ status, stats, channel, view, onView }: TemporalGraphProps) {
   const [ref, size] = useElementSize<HTMLDivElement>();
   const [tip, setTip] = useState<Tip | null>(null);
-  // A tooltip belongs to the data it was opened on.
   useEffect(() => setTip(null), [stats, channel, view]);
 
   const own = stats?.byChannel[channel];

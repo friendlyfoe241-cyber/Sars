@@ -1,13 +1,3 @@
-/* ------------------------------------------------------------------ */
-/* Vortex liquid glass                                                 */
-/* --p (0-1) is driven per element by useGlassProximity:               */
-/*   0   = no cursor nearby  -> clear, rippling liquid                 */
-/*   .45 = cursor within ~170 px -> partly frosted                     */
-/*   1   = cursor on it      -> fully frosted glass                    */
-/*                                                                     */
-/* Imported into the `components` layer so Tailwind utilities (absolute,*/
-/* fixed ...) can still set `position` on a .lg element.               */
-/* ------------------------------------------------------------------ */
 :root {
   --lg-t0: 0.02;
   --lg-tf: 0.14;
@@ -60,50 +50,21 @@
     inset 1.5px 1.5px 0 rgba(255, 255, 255, 0.42),
     inset -1px -1px 0 rgba(255, 255, 255, 0.1),
     inset 0 0 28px rgba(255, 255, 255, 0.05);
-  background: linear-gradient(
-    155deg,
-    rgba(255, 255, 255, 0.15) 0%,
-    rgba(255, 255, 255, 0.03) 24%,
-    transparent 55%,
-    rgba(255, 255, 255, 0.04) 100%
-  );
-}
-.lg-rim::after {
-  content: "";
-  position: absolute;
-  inset: -60%;
-  background: linear-gradient(
-    115deg,
-    transparent 44%,
-    rgba(255, 255, 255, 0.06) 50%,
-    transparent 56%
-  );
-  animation: lg-sheen 11s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+  background: rgba(255, 255, 255, 0.03);
 }
 .lg-c {
-  --p: 0; /* content never reads --p: stop proximity updates restyling it */
+  --p: 0;
   position: relative;
   z-index: 1;
 }
 
-/* lg-dark: a dark scrim in place of the white tint, so text keeps >= 4.5:1
-   even when the glass sits over the bright Earth imagery basemap and the
-   cursor is far away (the clear state).  Used wherever there is text. */
 .lg-dark .lg-tint {
   background: rgba(6, 8, 16, calc(0.7 + 0.12 * var(--p)));
 }
-/* The dark surface (header) is a permanent fixture: no animated displacement
-   filter and no endless sheen, so it never repaints on its own. */
 .lg-dark .lg-liq {
   filter: none;
 }
-.lg-dark .lg-rim::after {
-  display: none;
-}
 
-/* lg-panel: large reading surfaces (sidebar, dock, legend, map controls).
-   No SVG displacement filter and a single plain backdrop blur: a displaced,
-   animated backdrop over the live map makes panning janky on big areas. */
 .lg-panel .lg-liq {
   filter: none;
   opacity: 1;
@@ -115,9 +76,6 @@
 }
 .lg-panel .lg-tint {
   background: rgba(6, 8, 16, calc(0.78 + 0.1 * var(--p)));
-}
-.lg-panel .lg-rim::after {
-  display: none;
 }
 
 .lg-btn {

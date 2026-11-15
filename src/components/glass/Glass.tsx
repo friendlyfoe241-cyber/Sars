@@ -1,13 +1,5 @@
 import type { CSSProperties, ElementType, ReactNode } from "react";
 
-/**
- * One liquid-glass surface. The four layers are:
- *   lg-liq   clear, refracting liquid (visible when no cursor is near)
- *   lg-solid frosted glass (fades in as the cursor approaches)
- *   lg-tint  white tint whose strength follows the same proximity value
- *   lg-rim   edge light + slow sheen sweep
- * Proximity is written to the element's --p by useGlassProximity.
- */
 export default function Glass({
   as: Tag = "div",
   className = "",
@@ -32,10 +24,7 @@ export default function Glass({
   );
 }
 
-/** Hidden SVG filter used by .lg-liq. The noise drifts so idle glass ripples. */
 export function LiquidGlassFilter({ refraction = 90, animate = true }: { refraction?: number; animate?: boolean }) {
-  // A continuously animated filter re-renders every glass surface that uses it;
-  // with reduced motion the noise stays still.
   const still =
     typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   return (

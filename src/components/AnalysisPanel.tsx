@@ -1,7 +1,18 @@
-import { Download, FileJson, FileSpreadsheet, Map as MapIcon, PlayCircle } from "lucide-react";
+import { AlertTriangle, Download, FileJson, FileSpreadsheet, Map as MapIcon, PlayCircle, RotateCw } from "lucide-react";
 import type { AnalysisJob, AnalysisResult } from "../lib/analysisApi";
 import { artifactUrl } from "../lib/analysisApi";
 import { formatCount, formatPlain } from "../lib/format";
+import {
+  NOT_AVAILABLE,
+  analysisDirection,
+  causeNote,
+  directionWord,
+  finite,
+  fixed,
+  methodLabel,
+  neutralText,
+  thresholdText,
+} from "../lib/analysisWording";
 import { KeyRow, Section, Spinner } from "./ui";
 
 export interface AnalysisState {
@@ -31,7 +42,6 @@ function ServiceHelp() {
   );
 }
 
-/** Results table rows: value, unit and provenance kind of each metric. */
 function MetricTable({ rows }: { rows: { metric: string; value: number | string | null; unit: string; kind: string }[] }) {
   return (
     <table className="vx-itable vx-itable--results">
@@ -47,7 +57,9 @@ function MetricTable({ rows }: { rows: { metric: string; value: number | string 
           <tr key={r.metric}>
             <th scope="row">{r.metric}</th>
             <td>
-              {typeof r.value === "number"
+              {typeof r.value === "number" && !Number.isFinite(r.value)
+                ? "—"
+                : typeof r.value === "number"
                 ? r.unit === "pixels"
                   ? formatCount(Math.round(r.value))
                   : formatPlain(r.value)
@@ -80,50 +92,73 @@ function PlainTable({ rows }: { rows: { label: string; value: string; hint: stri
   );
 }
 
+function num(n: unknown, suffix = ""): string {
+  return finite(n) ? `${formatPlain(n)}${suffix}` : NOT_AVAILABLE;
+}
+
 function ResultBody({ result }: { result: AnalysisResult }) {
   const a = result.areaEstimates;
   const s = result.statistics;
-  const pct = a.candidate_changed_percent_of_valid;
-  const measuredShare = (a.valid_analysed_area_km2 / a.aoi_area_km2) * 100;
-  const overall =
-    Math.abs(s.mean_difference_db) < 0.5
-      ? "stayed about the same"
-      : s.mean_difference_db < 0
-        ? "got weaker"
-        : "got stronger";
+  const pct = a?.candidate_changed_percent_of_valid;
+  const changedKm2 = a?.candidate_changed_area_km2;
+  const measuredShare =
+    finite(a?.valid_analysed_area_km2) && finite(a?.aoi_area_km2) && a.aoi_area_km2 > 0
+      ? (a.valid_analysed_area_km2 / a.aoi_area_km2) * 100
+      : null;
+  const mean = s?.mean_difference_db;
+  const threshold = thresholdText(result);
+  const direction = directionWord(analysisDirection(result));
+  const overall = !finite(mean)
+    ? null
+    : Math.abs(mean) < 0.5
+      ? "changed by less than 0.5 dB on average"
+      : mean < 0
+        ? "decreased on average"
+        : "increased on average";
+  const hectares = a?.candidate_changed_area_hectares;
   return (
     <>
-          <div className="vx-notice" data-tone="info" style={{ display: "block" }}>
+      <div className="vx-notice" data-tone="info" style={{ display: "block" }}>
         <h4 className="mb-1">In plain words</h4>
-        <p>
-          About <strong>{pct.toFixed(1)}%</strong> of the area we could measure (
-          <strong>{formatPlain(a.candidate_changed_area_km2)} km²</strong>) showed a clear drop in radar
-          signal between the two dates. For forests, a drop like this <em>can</em> mean vegetation was
-          removed or thinned, but it can also come from soil moisture, seasons or flooding, so treat
-          these spots as places worth checking, not confirmed deforestation.
-        </p>
+        {finite(pct) && finite(changedKm2) ? (
+          <p>
+            About <strong>{fixed(pct, 1)}%</strong> of the area that could be measured (
+            <strong>{formatPlain(changedKm2)} km²</strong>) showed a {direction} in calibrated
+            gamma-0 backscatter of at least {threshold} between the two dates.
+          </p>
+        ) : (
+          <p>
+            The share of the area with a {direction} in calibrated gamma-0 backscatter of at least{" "}
+            {threshold} is not available for this run.
+          </p>
+        )}
+        <p className="mt-2">{causeNote(result)} Treat these spots as places worth checking.</p>
         <p className="mt-2">
-          Across the whole area, the radar signal on average {overall} ({formatPlain(s.mean_difference_db)} dB).
+          {overall
+            ? `Across the measured area, calibrated backscatter ${overall} (${formatPlain(mean as number)} dB).`
+            : `Average change across the measured area: ${NOT_AVAILABLE}.`}
         </p>
       </div>
 
       <PlainTable
         rows={[
-          { label: "Area you selected", value: `${formatPlain(a.aoi_area_km2)} km²`, hint: "" },
+          { label: "Area you selected", value: num(a?.aoi_area_km2, " km²"), hint: "" },
           {
-            label: "Area we could measure",
-            value: `${formatPlain(a.valid_analysed_area_km2)} km²`,
-            hint: `(${measuredShare.toFixed(0)}%, the rest had no usable data)`,
+            label: "Area that could be measured",
+            value: num(a?.valid_analysed_area_km2, " km²"),
+            hint: measuredShare === null ? "" : `(${measuredShare.toFixed(0)}%, the rest had no usable data)`,
           },
           {
-            label: "Area with a clear signal drop",
-            value: `${formatPlain(a.candidate_changed_area_km2)} km²`,
-            hint: `(${formatCount(Math.round(a.candidate_changed_area_hectares))} hectares), possible vegetation disturbance, an estimate`,
+            label: `Area with a ${direction} of at least ${threshold}`,
+            value: num(changedKm2, " km²"),
+            hint: finite(hectares)
+              ? `(${formatCount(Math.round(hectares))} hectares), candidate change, cause not determined, an estimate`
+              : "candidate change, cause not determined, an estimate",
           },
           {
-            label: "Share of measured area affected",
-            value: `${pct.toFixed(1)}%`,
-            hint: "estimate, depends on the 3 dB cut-off",
+            label: "Share of measured area",
+            value: finite(pct) ? `${fixed(pct, 1)}%` : NOT_AVAILABLE,
+            hint: `estimate, depends on the ${threshold} threshold`,
           },
         ]}
       />
@@ -146,15 +181,18 @@ function TechnicalBody({ result }: { result: AnalysisResult }) {
   return (
     <>
       <KeyRow label="Method">
-        {result.processing.eventMethod} · threshold {result.processing.methodParameters.change_db} dB ·{" "}
-        {result.processing.methodParameters.direction}
+        {methodLabel(result.processing?.eventMethod)} · threshold {thresholdText(result)} ·{" "}
+        {directionWord(analysisDirection(result))}
       </KeyRow>
       <KeyRow label="Polarisation">
         {result.productMetadata.polarisation} · {result.productMetadata.frequencyBand}
       </KeyRow>
       <KeyRow label="Quality">
-        {(result.processing.quality.validFraction * 100).toFixed(1)}% valid pixels · grid overlap{" "}
-        {result.processing.quality.overlapFraction !== null
+        {finite(result.processing?.quality?.validFraction)
+          ? `${(result.processing.quality.validFraction * 100).toFixed(1)}%`
+          : NOT_AVAILABLE}{" "}
+        valid pixels · grid overlap{" "}
+        {finite(result.processing?.quality?.overlapFraction)
           ? `${(result.processing.quality.overlapFraction * 100).toFixed(0)}%`
           : "—"}{" "}
         · speckle filtering: {result.processing.quality.speckleFiltering}
@@ -166,13 +204,15 @@ function TechnicalBody({ result }: { result: AnalysisResult }) {
             { metric: "Area of interest", value: a.aoi_area_km2, unit: "km²", kind: "derived" },
             { metric: "Valid analysed area", value: a.valid_analysed_area_km2, unit: "km²", kind: "derived" },
             {
-              metric: "Candidate disturbed area",
+              metric: "Candidate changed area",
               value: a.candidate_changed_area_km2,
-              unit: `km² (${formatCount(Math.round(a.candidate_changed_area_hectares))} ha)`,
+              unit: finite(a.candidate_changed_area_hectares)
+                ? `km² (${formatCount(Math.round(a.candidate_changed_area_hectares))} ha)`
+                : "km²",
               kind: "estimate",
             },
             {
-              metric: "Candidate disturbance (valid area)",
+              metric: "Candidate changed (valid area)",
               value: a.candidate_changed_percent_of_valid,
               unit: "%",
               kind: "estimate",
@@ -185,7 +225,7 @@ function TechnicalBody({ result }: { result: AnalysisResult }) {
           ]}
         />
       </div>
-      <p className="vx-note mt-2">{a.note}</p>
+      <p className="vx-note mt-2">{neutralText(a.note)}</p>
 
       <div className="mt-3 flex flex-wrap gap-2">
         <a className="vx-button vx-button--ghost vx-button--compact" href={artifactUrl(result.analysisId, "results.json")} download>
@@ -223,9 +263,9 @@ export default function AnalysisPanel({
       }
     >
       <p className="vx-note mb-3">
-        Retrieval of calibrated GCOV measurements and scientific change analysis by the Python
-        pipeline (NASA Harmony subset → dB statistics → candidate-area estimates), for {polarisation}{" "}
-        between {beforeDate} and {afterDate}.
+        Fetches calibrated GCOV data (NISAR's calibrated, map-projected radar product, gamma-0 in
+        dB) and runs a change analysis in the Python pipeline (NASA Harmony subset → dB statistics →
+        candidate-area estimates), for {polarisation} between {beforeDate} and {afterDate}.
       </p>
 
       {state.status === "idle" && (
@@ -258,16 +298,21 @@ export default function AnalysisPanel({
 
       {state.status === "error" && (
         <div className="vx-notice mt-2" data-tone="error" role="alert">
-          <h4>Analysis unavailable</h4>
+          <span className="vx-notice__icon">
+            <AlertTriangle size={18} aria-hidden />
+          </span>
+          <h3>Analysis unavailable</h3>
           <p>{state.message}</p>
-          {state.message?.includes("NASA_EARTHDATA_BEARER_TOKEN") && <p>{AUTH_HELP}</p>}
-          {state.message?.includes("analysis service") && (
-            <p>
+          {import.meta.env.DEV && state.message?.includes("NASA_EARTHDATA_BEARER_TOKEN") && (
+            <p className="vx-notice__extra">{AUTH_HELP}</p>
+          )}
+          {import.meta.env.DEV && (
+            <p className="vx-notice__extra">
               <ServiceHelp />
             </p>
           )}
-          <button type="button" className="vx-button vx-button--ghost vx-button--compact mt-2" onClick={onRun}>
-            Retry
+          <button type="button" className="vx-button vx-button--compact vx-notice__action" onClick={onRun}>
+            <RotateCw size={14} aria-hidden /> Retry
           </button>
         </div>
       )}

@@ -1,8 +1,3 @@
-// Place-name geocoding with a small client-side cache and rate limiting.
-// Uses the OpenStreetMap Nominatim service (public, CORS-enabled, usage
-// policy: max 1 request/second).  Coordinate input is handled directly and
-// never sent to the geocoder.
-
 export interface GeocodeResult {
   displayName: string;
   lat: number;

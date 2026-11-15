@@ -8,9 +8,7 @@ import { Spinner } from "./ui";
 interface ResultsTableProps {
   status: ViewState;
   stats: PairStats | null;
-  /** selected channel (always one the pair has loaded) */
   channel: string;
-  /** show every ready channel side by side (the parent computes their statistics) */
   both: boolean;
   onBoth: (both: boolean) => void;
 }
@@ -30,7 +28,6 @@ function Message({ busy, children }: { busy?: boolean; children: string }) {
 interface Row {
   key: string;
   label: string;
-  /** the value cell; the unit of the difference rows is in the column header */
   value: (c: ChannelStats) => ReactNode;
   note: string;
 }

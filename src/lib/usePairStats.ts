@@ -1,8 +1,3 @@
-// Statistics for the instrument row (results table and graph), computed once
-// per pair build (`PairDataset.instance`) and channel.  The caller passes the
-// pair that is valid for the current selection (or null), so a new area,
-// date pair or method can never expose numbers of a previous selection.
-
 import { useMemo, useRef } from "react";
 import {
   deltaHistogram,
@@ -17,9 +12,7 @@ import type { PairDataset } from "./rasterSource";
 export interface ChannelStats {
   change: ChangeSummary;
   dates: PerDateStats;
-  /** DN-delta histogram (after − before), the same one the change summary uses */
   delta: DeltaHistogram;
-  /** colour-scale saturation of the change layer (display DN) */
   saturation: number;
 }
 
@@ -31,12 +24,9 @@ export interface AcquisitionRef {
 
 export interface PairStats {
   instance: number;
-  /** in the order the per-date statistics were computed (before, after); the graph orders by time */
   acquisitions: AcquisitionRef[];
-  /** channels that are ready, in dataset order */
   channels: string[];
   unit: string;
-  /** true when stored DN is the display value ("quicklook_dn") */
   displayDn: boolean;
   byChannel: Record<string, ChannelStats>;
 }
@@ -46,12 +36,6 @@ interface Cache {
   byChannel: Map<string, ChannelStats>;
 }
 
-/**
- * Statistics for `channel` of the pair; with `allChannels` also for the other
- * ready channels (computed lazily, only when asked for, e.g. side by side).
- * One delta histogram per channel feeds both the summary and the
- * distribution, and each channel is computed once per pair build.
- */
 export function usePairStats(
   pair: PairDataset | null,
   channel: string,
