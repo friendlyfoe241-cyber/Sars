@@ -1,6 +1,6 @@
 import type { ChangeSummary } from "../lib/changeDetection";
 import type { ViewerDataset } from "../lib/data";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, RotateCw } from "lucide-react";
 import { formatPlain, formatSigned } from "../lib/format";
 import { KeyRow, Section, Spinner } from "./ui";
 
@@ -81,6 +81,9 @@ export default function StatsPanel({ dataset, pol, summary, ai, onExplain }: Sta
             </span>
             <h3>Explanation unavailable</h3>
             <p>{ai.message}</p>
+            <button type="button" className="vx-button vx-button--compact vx-notice__action" onClick={onExplain}>
+              <RotateCw size={14} aria-hidden /> Retry
+            </button>
           </div>
         )}
 

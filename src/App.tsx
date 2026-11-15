@@ -3,8 +3,10 @@ import { ChevronRight, FileJson, FileSpreadsheet, FileText, Maximize2, Minimize2
 import { isAbortError } from "./lib/abort";
 import AnalysisPanel, { type AnalysisState } from "./components/AnalysisPanel";
 import {
+  ANALYSIS_UNREACHABLE,
   AnalysisError,
   analysisBase,
+  friendlyServiceMessage,
   prefetchAnalysis,
   submitAnalysis,
   waitForAnalysis,
@@ -95,6 +97,7 @@ const NEXT_STEP: Record<StepId, StepId | null> = {
   change: "explain",
   explain: null,
 };
+const EXPLAIN_UNREACHABLE = "The explanation service is not reachable right now. Try again in a moment.";
 const METADATA_ONLY_MESSAGE =
   "Quicklook rasters for this pair are not available. Scene metadata is shown instead of a comparison.";
 
@@ -619,20 +622,28 @@ export default function App() {
       }
       const body = await res.json().catch(() => null);
       if (!res.ok) {
+        const raw = body && typeof body.error === "string" ? body.error : "";
         settle({
           status: "error",
-          message:
-            body && typeof body.error === "string"
-              ? body.error
-              : `The explanation service returned an error (${res.status}).`,
+          message: import.meta.env.DEV
+            ? raw || `The explanation service returned HTTP ${res.status}. Run \`vercel dev\` instead of \`npm run dev\` for the /api routes.`
+            : raw && !/GEMINI|API key|HTTP \d{3}/i.test(raw)
+              ? raw
+              : EXPLAIN_UNREACHABLE,
         });
         return;
       }
       const exp = body?.explanation as AiExplanation | undefined;
-      if (!exp) {
+      if (
+        !exp ||
+        typeof exp !== "object" ||
+        !["observedSignal", "possibleIndication", "limitations"].some(
+          (k) => typeof (exp as unknown as Record<string, unknown>)[k] === "string",
+        )
+      ) {
         settle({
           status: "error",
-          message: "Unexpected response from the explanation service.",
+          message: import.meta.env.DEV ? "Unexpected response from the explanation service." : EXPLAIN_UNREACHABLE,
         });
         return;
       }
@@ -644,8 +655,9 @@ export default function App() {
     } catch {
       settle({
         status: "error",
-        message:
-          "The explanation endpoint is not available. In local development run `vercel dev` instead of `npm run dev`.",
+        message: import.meta.env.DEV
+          ? "The explanation endpoint is not available. In local development run `vercel dev` instead of `npm run dev`."
+          : EXPLAIN_UNREACHABLE,
       });
     }
   }, [viewer, summary, channel, currentSelectionKey, analysis]);
@@ -697,7 +709,7 @@ export default function App() {
         settle({
           status: "error",
           job,
-          message: job.error?.message ?? "The analysis failed.",
+          message: friendlyServiceMessage(job.error?.code, job.error?.message),
         });
       }
     } catch (err) {
@@ -707,7 +719,9 @@ export default function App() {
         message:
           err instanceof AnalysisError
             ? err.message
-            : `The analysis service is not available. ${err instanceof Error ? err.message : ""}`,
+            : import.meta.env.DEV && err instanceof Error
+              ? `${ANALYSIS_UNREACHABLE} (${err.message})`
+              : ANALYSIS_UNREACHABLE,
       });
     }
   }, [buildAnalysisRequest, currentSelectionKey]);

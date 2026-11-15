@@ -854,3 +854,6 @@
 .vx-plain__row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 10px; margin-top: 8px; background: rgba(255,255,255,0.04); }
 .vx-plain dt { opacity: 0.8; }
 .vx-plain dd { margin: 0; text-align: right; }
+.vx-notice__extra {
+  grid-column: 2;
+}

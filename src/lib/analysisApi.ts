@@ -103,6 +103,30 @@ export interface ServiceHealth {
 
 const BASE = (import.meta.env.VITE_ANALYSIS_API as string | undefined) ?? "";
 
+export const ANALYSIS_UNREACHABLE =
+  "The analysis service is not reachable right now. The quicklook comparison and statistics still work.";
+const ANALYSIS_NOT_CONFIGURED =
+  "The analysis service cannot fetch NISAR data right now. The quicklook comparison and statistics still work.";
+
+export function friendlyServiceMessage(code: string | undefined, message: string | undefined): string {
+  const text = typeof message === "string" ? message.trim() : "";
+  if (import.meta.env.DEV && text) return text;
+  if (
+    code === "auth_not_configured" ||
+    /NASA_EARTHDATA|BEARER_TOKEN|\.env|credential/i.test(text)
+  ) {
+    return ANALYSIS_NOT_CONFIGURED;
+  }
+  if (!text || code === "internal_error" || /server log|HTTP \d{3}|Traceback|Exception/i.test(text)) {
+    return ANALYSIS_UNREACHABLE;
+  }
+  return text;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function analysisBase(): string {
   return BASE;
 }
@@ -113,19 +137,34 @@ async function jsonFetch(path: string, init?: RequestInit): Promise<unknown> {
     res = await fetch(`${BASE}${path}`, init);
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") throw err;
+    if (init?.signal?.aborted) throw new DOMException("aborted", "AbortError");
     throw new AnalysisError(
-      `The analysis service could not be reached${BASE ? ` at ${BASE}` : ""} (network error). ` +
-        "It may be starting up, asleep, or unreachable — press Retry in a moment.",
+      import.meta.env.DEV
+        ? `The analysis service could not be reached${BASE ? ` at ${BASE}` : ""} (network error). Start it with python processing/serve.py.`
+        : ANALYSIS_UNREACHABLE,
       { error: { code: "unreachable" } },
     );
   }
-  const body = await res.json().catch(() => null);
+  const body: unknown = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
-      body && typeof body === "object" && "error" in body
-        ? String((body as { error: { message?: string } }).error?.message ?? res.status)
-        : `HTTP ${res.status}`;
-    throw new AnalysisError(message, body);
+    const err = isRecord(body) && isRecord(body.error) ? body.error : null;
+    const code = err && typeof err.code === "string" ? err.code : undefined;
+    const raw = err && typeof err.message === "string" ? err.message : undefined;
+    if (!raw) {
+      throw new AnalysisError(
+        import.meta.env.DEV
+          ? `The analysis service returned HTTP ${res.status} with no error details. Is python processing/serve.py running?`
+          : ANALYSIS_UNREACHABLE,
+        { error: { code: res.status >= 502 && res.status <= 504 ? "unreachable" : "unavailable" } },
+      );
+    }
+    throw new AnalysisError(friendlyServiceMessage(code, raw), body);
+  }
+  if (!isRecord(body)) {
+    throw new AnalysisError(
+      import.meta.env.DEV ? "The analysis service returned an empty or non-JSON response." : ANALYSIS_UNREACHABLE,
+      { error: { code: "bad_response" } },
+    );
   }
   return body;
 }
@@ -145,16 +184,25 @@ export async function checkAnalysisService(signal?: AbortSignal): Promise<Servic
   return (await jsonFetch("/api/health", { signal })) as ServiceHealth;
 }
 
+function badResponse(): AnalysisError {
+  return new AnalysisError(
+    import.meta.env.DEV ? "The analysis service returned an unexpected response shape." : ANALYSIS_UNREACHABLE,
+    { error: { code: "bad_response" } },
+  );
+}
+
 export async function submitAnalysis(
   request: AnalysisRequest,
   signal?: AbortSignal,
 ): Promise<{ analysisId: string }> {
-  return (await jsonFetch("/api/analyze", {
+  const body = (await jsonFetch("/api/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
     signal,
-  })) as { analysisId: string };
+  })) as Record<string, unknown>;
+  if (typeof body.analysisId !== "string" || !body.analysisId) throw badResponse();
+  return { analysisId: body.analysisId };
 }
 
 export async function prefetchAnalysis(request: AnalysisRequest): Promise<void> {
@@ -168,8 +216,16 @@ export async function prefetchAnalysis(request: AnalysisRequest): Promise<void> 
   }
 }
 
+const JOB_STATUSES = new Set(["queued", "running", "succeeded", "failed"]);
+
 export async function getAnalysis(id: string, signal?: AbortSignal): Promise<AnalysisJob> {
-  return (await jsonFetch(`/api/analyze/${id}`, { signal })) as AnalysisJob;
+  const body = (await jsonFetch(`/api/analyze/${encodeURIComponent(id)}`, { signal })) as Record<string, unknown>;
+  if (typeof body.status !== "string" || !JOB_STATUSES.has(body.status)) throw badResponse();
+  const job = body as unknown as AnalysisJob;
+  if (job.status === "succeeded" && (!isRecord(job.result) || !isRecord(job.result.areaEstimates))) {
+    throw badResponse();
+  }
+  return { ...job, progress: typeof job.progress === "string" ? job.progress : "processing" };
 }
 
 export function artifactUrl(analysisId: string, file: string): string {

@@ -1,4 +1,4 @@
-import { Download, FileJson, FileSpreadsheet, Map as MapIcon, PlayCircle } from "lucide-react";
+import { AlertTriangle, Download, FileJson, FileSpreadsheet, Map as MapIcon, PlayCircle, RotateCw } from "lucide-react";
 import type { AnalysisJob, AnalysisResult } from "../lib/analysisApi";
 import { artifactUrl } from "../lib/analysisApi";
 import { formatCount, formatPlain } from "../lib/format";
@@ -298,16 +298,21 @@ export default function AnalysisPanel({
 
       {state.status === "error" && (
         <div className="vx-notice mt-2" data-tone="error" role="alert">
-          <h4>Analysis unavailable</h4>
+          <span className="vx-notice__icon">
+            <AlertTriangle size={18} aria-hidden />
+          </span>
+          <h3>Analysis unavailable</h3>
           <p>{state.message}</p>
-          {state.message?.includes("NASA_EARTHDATA_BEARER_TOKEN") && <p>{AUTH_HELP}</p>}
-          {state.message?.includes("analysis service") && (
-            <p>
+          {import.meta.env.DEV && state.message?.includes("NASA_EARTHDATA_BEARER_TOKEN") && (
+            <p className="vx-notice__extra">{AUTH_HELP}</p>
+          )}
+          {import.meta.env.DEV && (
+            <p className="vx-notice__extra">
               <ServiceHelp />
             </p>
           )}
-          <button type="button" className="vx-button vx-button--ghost vx-button--compact mt-2" onClick={onRun}>
-            Retry
+          <button type="button" className="vx-button vx-button--compact vx-notice__action" onClick={onRun}>
+            <RotateCw size={14} aria-hidden /> Retry
           </button>
         </div>
       )}
