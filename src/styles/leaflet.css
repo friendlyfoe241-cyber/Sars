@@ -7,7 +7,7 @@
 
 .leaflet-bar {
   border: 0 !important;
-  border-radius: 22px !important;
+  border-radius: var(--vx-btn-radius) !important;
   overflow: hidden;
   background: rgba(6, 8, 16, 0.82);
   backdrop-filter: blur(16px) saturate(140%);
@@ -21,8 +21,8 @@
   width: 44px;
   height: 44px;
   line-height: 42px;
-  border-radius: 0 !important;
-  border-bottom: 1px solid var(--vx-border);
+  border-radius: var(--vx-btn-radius) !important;
+  border-bottom: 0;
   background-color: transparent;
   color: var(--vx-text);
   font: 400 20px/42px var(--vx-font-body);
@@ -30,8 +30,18 @@
 .leaflet-bar a:hover {
   background-color: rgba(255, 255, 255, 0.14);
 }
-.leaflet-bar a:last-child {
-  border-bottom: 0;
+.leaflet-bar a:not(:last-child) {
+  position: relative;
+}
+.leaflet-bar a:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 1px;
+  background: var(--vx-border);
+  pointer-events: none;
 }
 .leaflet-bar a.leaflet-disabled {
   background-color: transparent;
@@ -122,7 +132,7 @@
 }
 
 .vx-basemap-switch {
-  border-radius: 999px !important;
+  border-radius: calc(var(--vx-btn-radius) + 3px) !important;
   clear: both;
 }
 .vx-basemap-switch .lg-c {
@@ -140,7 +150,7 @@
   min-width: 44px;
   padding: 0 14px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--vx-btn-radius);
   background: transparent;
   color: var(--vx-text-muted);
   font: 500 12.5px/1 var(--vx-font-display);
@@ -152,8 +162,11 @@
   color: var(--vx-text);
 }
 .vx-basemap-switch__btn[aria-pressed="true"] {
-  background: linear-gradient(135deg, #4f46e5, #6d4ce0);
+  background: var(--vx-accent);
   color: var(--vx-on-accent);
+}
+.vx-basemap-switch--compact {
+  border-radius: var(--vx-btn-radius) !important;
 }
 .vx-basemap-switch--compact .lg-c {
   padding: 0;
@@ -166,7 +179,7 @@
   height: 44px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--vx-btn-radius);
   background: transparent;
   color: var(--vx-text);
   cursor: pointer;
@@ -191,10 +204,8 @@
   left: -1px;
   width: 2px;
   border-radius: 2px;
-  background: linear-gradient(180deg, var(--vx-cyan), #ffffff 50%, var(--vx-violet));
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.55),
-    0 0 14px rgba(124, 196, 255, 0.5);
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
 }
 .vx-compare__grip {
   top: var(--cmp-grip-y, 40%);

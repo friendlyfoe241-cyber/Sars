@@ -1254,7 +1254,7 @@ export default function App() {
       <LiquidGlassFilter animate={heroOpen} />
 
       <div className="absolute inset-0" aria-hidden="true">
-        <Starfield count={110} animate={false} nebula={false} />
+        <Starfield count={110} animate={false} />
       </div>
 
       <div className="vx-frame" inert={heroOpen}>

@@ -50,25 +50,7 @@
     inset 1.5px 1.5px 0 rgba(255, 255, 255, 0.42),
     inset -1px -1px 0 rgba(255, 255, 255, 0.1),
     inset 0 0 28px rgba(255, 255, 255, 0.05);
-  background: linear-gradient(
-    155deg,
-    rgba(255, 255, 255, 0.15) 0%,
-    rgba(255, 255, 255, 0.03) 24%,
-    transparent 55%,
-    rgba(255, 255, 255, 0.04) 100%
-  );
-}
-.lg-rim::after {
-  content: "";
-  position: absolute;
-  inset: -60%;
-  background: linear-gradient(
-    115deg,
-    transparent 44%,
-    rgba(255, 255, 255, 0.06) 50%,
-    transparent 56%
-  );
-  animation: lg-sheen 11s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+  background: rgba(255, 255, 255, 0.03);
 }
 .lg-c {
   --p: 0;
@@ -82,9 +64,6 @@
 .lg-dark .lg-liq {
   filter: none;
 }
-.lg-dark .lg-rim::after {
-  display: none;
-}
 
 .lg-panel .lg-liq {
   filter: none;
@@ -97,9 +76,6 @@
 }
 .lg-panel .lg-tint {
   background: rgba(6, 8, 16, calc(0.78 + 0.1 * var(--p)));
-}
-.lg-panel .lg-rim::after {
-  display: none;
 }
 
 .lg-btn {

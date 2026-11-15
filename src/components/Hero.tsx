@@ -73,16 +73,6 @@ export default function Hero({
           <div className="vx-hero__globe-box">
             <div className="vx-in-bottom vx-hero__globe h-full w-full">
               <div className="vx-hero__bob relative h-full w-full">
-                <div
-                  className="absolute rounded-full"
-                  style={{
-                    inset: "-9%",
-                    background:
-                      "radial-gradient(circle, rgba(63,140,240,.5) 42%, rgba(63,140,240,.12) 58%, transparent 70%)",
-                    filter: "blur(28px)",
-                    animation: "hero-glow 6s ease-in-out infinite",
-                  }}
-                />
                 <img
                   src={`${import.meta.env.BASE_URL}globe.webp`}
                   alt=""
@@ -96,8 +86,6 @@ export default function Hero({
                 <div
                   className="absolute inset-0 rounded-full"
                   style={{
-                    background:
-                      "radial-gradient(circle at 30% 24%, rgba(255,255,255,.2), transparent 34%), radial-gradient(circle at 74% 82%, rgba(0,0,0,.6), transparent 62%)",
                     boxShadow: "inset -34px -46px 90px rgba(0,0,0,.65), inset 8px 10px 30px rgba(150,200,255,.35)",
                   }}
                 />

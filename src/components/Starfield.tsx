@@ -2,11 +2,9 @@ import { useMemo } from "react";
 
 export default function Starfield({
   count = 140,
-  nebula = true,
   animate = true,
 }: {
   count?: number;
-  nebula?: boolean;
   animate?: boolean;
 }) {
   const stars = useMemo(() => {
@@ -22,40 +20,12 @@ export default function Starfield({
       r: rnd() < 0.86 ? 1 : rnd() < 0.7 ? 1.6 : 2.2,
       d: 2.5 + rnd() * 5,
       delay: rnd() * 6,
-      tint: rnd() < 0.18 ? "#A5C8FF" : rnd() < 0.08 ? "#C9B5FF" : "#FFFFFF",
+      tint: rnd() < 0.18 ? "#A5C8FF" : rnd() < 0.08 ? "#DCEBFF" : "#FFFFFF",
     }));
   }, [count]);
 
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-      {nebula && (
-        <>
-          <div
-            className="absolute rounded-full"
-            style={{
-              left: "-12%",
-              top: "-18%",
-              width: "62vw",
-              height: "62vw",
-              background: "radial-gradient(circle, rgba(79,70,229,.22), transparent 62%)",
-              filter: "blur(40px)",
-              animation: "nebula-drift 38s ease-in-out infinite",
-            }}
-          />
-          <div
-            className="absolute rounded-full"
-            style={{
-              right: "-15%",
-              top: "8%",
-              width: "55vw",
-              height: "55vw",
-              background: "radial-gradient(circle, rgba(157,116,240,.16), transparent 60%)",
-              filter: "blur(50px)",
-              animation: "nebula-drift 46s ease-in-out -12s infinite reverse",
-            }}
-          />
-        </>
-      )}
       {stars.map((s) => (
         <span
           key={s.i}

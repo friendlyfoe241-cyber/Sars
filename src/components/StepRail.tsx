@@ -46,8 +46,8 @@ export default function StepRail({
           left: 4,
           width: BW,
           transform: `translateX(${idx * BW}px)`,
-          background: "linear-gradient(135deg, #4F46E5, #6D4CE0)",
-          boxShadow: "inset 1px 1.5px 0 rgba(255,255,255,.45), 0 4px 14px rgba(99,102,241,.4)",
+          background: "var(--vx-accent)",
+          boxShadow: "0 4px 14px rgba(0,0,0,.45)",
         }}
       />
       {STEPS.map((step) => {
@@ -63,7 +63,7 @@ export default function StepRail({
             aria-label={ok ? (wide ? undefined : step.label) : `${step.label}, locked: ${step.locked}`}
             title={ok ? step.label : `${step.label}: ${step.locked}`}
             className="lg-btn relative flex items-center justify-center gap-2 rounded-full border-0 bg-transparent text-[13px] font-medium"
-            style={{ width: BW, minHeight: 44, color: on ? "#fff" : ok ? "#C9D0DA" : "#8A93A0" }}
+            style={{ width: BW, minHeight: 44, color: on ? "var(--vx-on-accent)" : ok ? "#C9D0DA" : "#8A93A0" }}
           >
             <StepIcon id={step.id} size={16} />
             {wide && step.label}

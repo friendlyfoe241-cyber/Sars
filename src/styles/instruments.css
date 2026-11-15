@@ -104,6 +104,7 @@
   font: inherit;
   letter-spacing: inherit;
   text-transform: inherit;
+  border-radius: var(--vx-btn-radius);
   cursor: pointer;
 }
 .vx-itable__sort { min-height: 44px; padding: 0 4px; margin: 0 -4px; }
@@ -152,7 +153,7 @@
 
 .vx-graph { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .vx-graph__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 6px 12px 0; flex: none; }
-.vx-graph__seg { flex: none; padding: 2px; gap: 2px; flex-wrap: nowrap; }
+.vx-graph__seg { flex: none; padding: 2px; gap: 2px; flex-wrap: nowrap; border-radius: calc(var(--vx-btn-radius) + 2px); }
 .vx-graph__seg .vx-segment { flex: 0 0 auto; padding-inline: 10px; }
 .vx-graph__seg .vx-segment { white-space: nowrap; padding: 2px 12px; font-size: 12px; }
 .vx-graph__ctx { flex: 1 1 0; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vx-text-muted); font: 400 11px/16px var(--vx-font-mono); }

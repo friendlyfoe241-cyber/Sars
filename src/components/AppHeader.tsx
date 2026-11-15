@@ -8,7 +8,7 @@ const DOT: Record<ChipTone, string> = {
   idle: "#a3adbd",
   busy: "#7cc4ff",
   ok: "#86e3b5",
-  warn: "#d4bcff",
+  warn: "#f4d774",
   error: "#ff9aa6",
 };
 

@@ -24,7 +24,7 @@ export default function LockedStep({
         <div className="flex flex-col items-center gap-4 px-6 py-8 text-center sm:px-10 sm:py-10">
           <span
             className="grid size-16 place-items-center rounded-full text-app-flare"
-            style={{ background: "rgba(79,70,229,.18)", boxShadow: "inset 1px 1px 0 rgba(157,184,255,.35)" }}
+            style={{ background: "var(--vx-accent-tint)", boxShadow: "inset 1px 1px 0 var(--vx-accent-line)" }}
           >
             <StepIcon id={step} size={28} />
           </span>

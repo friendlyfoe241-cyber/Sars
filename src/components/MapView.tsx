@@ -322,7 +322,7 @@ function ScaleBar() {
   return null;
 }
 
-const VX = { aoi: "#7CC4FF", selected: "#9D74F0", draw: "#9DB8FF", text: "#F2F4F7" } as const;
+const VX = { aoi: "#7CC4FF", selected: "#C9E26B", draw: "#B4D7FE", text: "#F2F4F7" } as const;
 
 const FOOTPRINT_STYLE: L.PathOptions = {
   color: VX.text,
