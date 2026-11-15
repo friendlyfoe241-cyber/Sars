@@ -15,6 +15,7 @@ export interface AiExplanation {
 export interface AiState {
   status: "idle" | "loading" | "done" | "error";
   explanation?: AiExplanation;
+  model?: string;
   message?: string;
 }
 
@@ -68,7 +69,8 @@ export default function StatsPanel({ dataset, pol, summary, ai, onExplain }: Sta
         </button>
         {ai.status === "idle" && (
           <p className="vx-note mt-2">
-            Generates a written reading of the statistics and metadata. It does not inspect the imagery.
+            Asks an AI model for a written interpretation of the statistics and metadata. It does not
+            inspect the imagery, and its answer is not a measurement or validation.
           </p>
         )}
 
@@ -83,7 +85,13 @@ export default function StatsPanel({ dataset, pol, summary, ai, onExplain }: Sta
         )}
 
         {ai.status === "done" && ai.explanation && (
-          <div className="mt-3 grid gap-3 rounded-[18px] bg-white/[0.06] p-4 shadow-[inset_1.5px_1.5px_0_rgba(255,255,255,0.16)]">
+          <p className="vx-note mt-3" role="note">
+            <strong>AI-generated</strong> by {ai.model ? ai.model : "AI model"}: an interpretation of the
+            statistics shown, not a measurement or validation. Possible causes are hypotheses.
+          </p>
+        )}
+        {ai.status === "done" && ai.explanation && (
+          <div className="mt-2 grid gap-3 rounded-[18px] bg-white/[0.06] p-4 shadow-[inset_1.5px_1.5px_0_rgba(255,255,255,0.16)]">
             {(
               [
                 ["Observed signal", ai.explanation.observedSignal],

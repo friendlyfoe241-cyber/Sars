@@ -636,7 +636,11 @@ export default function App() {
         });
         return;
       }
-      settle({ status: "done", explanation: exp });
+      settle({
+        status: "done",
+        explanation: exp,
+        model: typeof body?.model === "string" && body.model ? body.model : undefined,
+      });
     } catch {
       settle({
         status: "error",
